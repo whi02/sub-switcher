@@ -1,0 +1,89 @@
+{
+  "name": "double-claude",
+  "displayName": "Account Lanes for Claude Code",
+  "description": "Switch between your own Claude subscriptions in VS Code without re-logging in, while every account shares the same conversation history and memory.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "whiyoung",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "doubleClaude.switch",
+        "title": "Account Lanes: Switch Account",
+        "category": "Account Lanes"
+      },
+      {
+        "command": "doubleClaude.setup",
+        "title": "Account Lanes: Run Setup",
+        "category": "Account Lanes"
+      },
+      {
+        "command": "doubleClaude.addAccount",
+        "title": "Account Lanes: Add Account Slot",
+        "category": "Account Lanes"
+      },
+      {
+        "command": "doubleClaude.doctor",
+        "title": "Account Lanes: Diagnose",
+        "category": "Account Lanes"
+      },
+      {
+        "command": "doubleClaude.reset",
+        "title": "Account Lanes: Reset (restore defaults)",
+        "category": "Account Lanes"
+      }
+    ],
+    "configuration": {
+      "title": "Account Lanes",
+      "properties": {
+        "doubleClaude.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the active account in the status bar."
+        },
+        "doubleClaude.statusBarAlignment": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "default": "right",
+          "description": "Which side of the status bar to show the account indicator on."
+        },
+        "doubleClaude.promptNewConversationAfterSwitch": {
+          "type": "boolean",
+          "default": true,
+          "description": "After switching accounts, offer to open a new Claude Code conversation (running conversations keep their original account)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "audit:compliance": "node scripts/compliance-audit.mjs",
+    "check": "npm run typecheck && npm run audit:compliance",
+    "package": "npm run check && npm run build -- --production && vsce package --no-dependencies",
+    "vscode:prepublish": "npm run build -- --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.94.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  },
+  "allowScripts": {
+    "esbuild@0.24.2": true
+  }
+}
