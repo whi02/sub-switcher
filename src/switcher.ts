@@ -1,10 +1,8 @@
 import {
-  applyAccountState,
-  backupConfig,
+  commitAccountState,
   extractAccountState,
   readConfig,
   restoreConfig,
-  writeConfig,
 } from "./claudeConfig";
 import { getConfiguredSlotDir, setSlotDir } from "./envSettings";
 import { normalizeSlotDir } from "./paths";
@@ -113,14 +111,10 @@ export async function switchTo(profileId: string): Promise<SwitchResult> {
   let backupPath: string | undefined;
   let configPath: string | undefined;
   try {
-    const { path, config } = await readConfig();
-    configPath = path;
-    backupPath = await backupConfig(path);
-    const next = applyAccountState(config, {
+    ({ backupPath, configPath } = await commitAccountState({
       oauthAccount: target.oauthAccount,
       caches: target.accountCaches,
-    });
-    await writeConfig(path, next);
+    }));
   } catch (err) {
     // Nothing has changed yet apart from a possible backup; surface and stop.
     throw new Error(

@@ -135,6 +135,45 @@ export function extractAccountState(config: ClaudeConfig): {
  * account-scoped keys rather than leaving the other account's values behind,
  * so Claude Code repopulates them from its own next API response.
  */
+/**
+ * Read, swap the account-scoped slice, write, and confirm it landed.
+ *
+ * Claude Code rewrites ~/.claude.json on its own schedule and does not take a
+ * lock around it (its proper-lockfile usage covers credential storage, not this
+ * file), so a running Claude process can overwrite us between our read and our
+ * write. The window is milliseconds and the consequence is cosmetic -- the UI
+ * would show the previous account's email while the correct token is in use --
+ * but it is cheap to notice and retry, so we do.
+ *
+ * Returns the backup path taken before the first successful write.
+ */
+export async function commitAccountState(
+  state: { oauthAccount?: OAuthAccount; caches?: Record<string, unknown> },
+  attempts = 3,
+): Promise<{ backupPath: string; configPath: string }> {
+  let lastMismatch: string | undefined;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const { path: configPath, config } = await readConfig();
+    const backupPath = await backupConfig(configPath);
+    await writeConfig(configPath, applyAccountState(config, state));
+
+    const { config: verified } = await readConfig();
+    const observed = (verified[OAUTH_ACCOUNT_KEY] as OAuthAccount | undefined)?.accountUuid;
+    const expected = state.oauthAccount?.accountUuid;
+
+    if (observed === expected) {
+      return { backupPath, configPath };
+    }
+    lastMismatch = `expected ${expected ?? "(none)"}, found ${observed ?? "(none)"}`;
+  }
+
+  throw new Error(
+    `Another process kept rewriting Claude Code's config while switching (${lastMismatch}). ` +
+      "Close running Claude conversations and try again.",
+  );
+}
+
 export function applyAccountState(
   config: ClaudeConfig,
   state: { oauthAccount?: OAuthAccount; caches?: Record<string, unknown> },
