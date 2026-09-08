@@ -1,0 +1,13 @@
+.github/**
+.claude/**
+scripts/**
+src/**
+node_modules/**
+.gitignore
+.vscodeignore
+esbuild.mjs
+tsconfig.json
+package-lock.json
+**/*.map
+**/*.vsix
+.DS_Store
