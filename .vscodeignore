@@ -1,5 +1,7 @@
 .github/**
 .claude/**
+test/**
+dist-test/**
 scripts/**
 src/**
 node_modules/**
