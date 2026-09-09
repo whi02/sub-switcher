@@ -1,6 +1,6 @@
 {
   "name": "double-claude",
-  "displayName": "Account Lanes for Claude Code",
+  "displayName": "Account Lanes",
   "description": "Switch between your own Claude subscriptions in VS Code without re-logging in, while every account shares the same conversation history and memory.",
   "version": "0.1.0",
   "license": "MIT",
@@ -91,5 +91,14 @@
   },
   "allowScripts": {
     "esbuild@0.24.2": true
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whiyoung/double-claude.git"
+  },
+  "author": "whiyoung",
+  "bugs": {
+    "url": "https://github.com/whiyoung/double-claude/issues"
+  },
+  "homepage": "https://github.com/whiyoung/double-claude#readme"
 }

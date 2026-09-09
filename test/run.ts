@@ -88,12 +88,13 @@ async function freshSandbox() {
 
 describe("keychain slot naming matches the CLI's own derivation");
 {
-  // Verified against the live keychain on the machine this was developed on:
-  // ~/.claude-pro1 -> Claude Code-credentials-e8798890.
+  // sha256("/home/alice/.claude-pro1").hex.slice(0, 8) === "4cf88803" -- computed
+  // independently, not copied from the implementation, so this actually tests
+  // the derivation rather than echoing it back.
   it(
     "hashes an absolute path to the documented service name",
-    keychainServiceName("/Users/whiyoung/.claude-pro1") === "Claude Code-credentials-e8798890",
-    keychainServiceName("/Users/whiyoung/.claude-pro1"),
+    keychainServiceName("/home/alice/.claude-pro1") === "Claude Code-credentials-4cf88803",
+    keychainServiceName("/home/alice/.claude-pro1"),
   );
   // os.homedir() is read here, not at module load, so it reflects the sandbox
   // HOME this suite redirects to.
