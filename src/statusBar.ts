@@ -15,11 +15,11 @@ export class AccountStatusBar {
 
   constructor() {
     const alignment =
-      vscode.workspace.getConfiguration("doubleClaude").get<string>("statusBarAlignment") === "left"
+      vscode.workspace.getConfiguration("subSwitcher").get<string>("statusBarAlignment") === "left"
         ? vscode.StatusBarAlignment.Left
         : vscode.StatusBarAlignment.Right;
     this.item = vscode.window.createStatusBarItem(alignment, 100);
-    this.item.command = "doubleClaude.switch";
+    this.item.command = "subSwitcher.switch";
   }
 
   dispose(): void {
@@ -27,7 +27,7 @@ export class AccountStatusBar {
   }
 
   async refresh(): Promise<void> {
-    if (!vscode.workspace.getConfiguration("doubleClaude").get<boolean>("showStatusBar", true)) {
+    if (!vscode.workspace.getConfiguration("subSwitcher").get<boolean>("showStatusBar", true)) {
       this.item.hide();
       return;
     }
@@ -36,21 +36,21 @@ export class AccountStatusBar {
     try {
       state = await loadProfiles();
     } catch {
-      this.item.text = "$(account) Lanes: 상태 읽기 실패";
-      this.item.tooltip = "profiles.json을 읽지 못했습니다. Account Lanes: Diagnose를 실행하세요.";
+      this.item.text = "$(account) Sub: 상태 읽기 실패";
+      this.item.tooltip = "profiles.json을 읽지 못했습니다. SubSwitcher: Diagnose를 실행하세요.";
       this.item.show();
       return;
     }
 
     if (state.profiles.length === 0) {
-      this.item.text = "$(account) Lanes: 설정 필요";
-      this.item.tooltip = "클릭해서 Account Lanes 설정을 시작하세요.";
-      this.item.command = "doubleClaude.setup";
+      this.item.text = "$(account) Sub: 설정 필요";
+      this.item.tooltip = "클릭해서 SubSwitcher 설정을 시작하세요.";
+      this.item.command = "subSwitcher.setup";
       this.item.show();
       return;
     }
 
-    this.item.command = "doubleClaude.switch";
+    this.item.command = "subSwitcher.switch";
     const resolution = resolveActive(state);
 
     // The two "no active profile" states have different causes and different
@@ -58,7 +58,7 @@ export class AccountStatusBar {
     // configured at all, and telling the user their setting fails to match sends
     // them looking for a misconfiguration that does not exist.
     if (resolution.kind === "unconfigured") {
-      this.item.text = "$(account) Lanes: 계정 선택";
+      this.item.text = "$(account) Sub: 계정 선택";
       this.item.tooltip = new vscode.MarkdownString(
         [
           "**아직 계정을 선택하지 않았습니다.**",
@@ -73,7 +73,7 @@ export class AccountStatusBar {
     }
 
     if (resolution.kind === "unknown-slot") {
-      this.item.text = "$(account) Lanes: 미지정 슬롯";
+      this.item.text = "$(account) Sub: 미지정 슬롯";
       this.item.tooltip = new vscode.MarkdownString(
         [
           "**등록되지 않은 자격증명 슬롯이 설정되어 있습니다.**",
@@ -101,7 +101,7 @@ export class AccountStatusBar {
   }
 
   private buildTooltip(state: ProfilesState, active: Profile): vscode.MarkdownString {
-    const lines: string[] = ["**Account Lanes**", ""];
+    const lines: string[] = ["**SubSwitcher**", ""];
 
     for (const profile of state.profiles) {
       const marker = profile.id === active.id ? "●" : "○";

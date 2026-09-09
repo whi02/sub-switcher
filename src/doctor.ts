@@ -105,7 +105,7 @@ export async function runDoctor(): Promise<Finding[]> {
         "Remote Control 브리지 세션은 만든 계정에 서버 측에서 묶입니다. 다른 계정으로 전환한 뒤 " +
         "그 대화를 열면 원래 계정으로 되돌아갑니다 (대화 내용 자체는 이어짐).\n" +
         "계정 간에 대화를 자유롭게 이어받으려면 자동 시작을 끄세요: " +
-        "Account Lanes: Disable Remote Control Autostart\n" +
+        "SubSwitcher: Disable Remote Control Autostart\n" +
         `설정 위치: ${rc.settingsPath} 의 "remoteControlAtStartup"`,
     });
   }
@@ -116,7 +116,7 @@ export async function runDoctor(): Promise<Finding[]> {
     findings.push({
       level: "warn",
       title: "등록된 계정 슬롯 없음",
-      detail: "Account Lanes: Run Setup 을 실행하세요.",
+      detail: "SubSwitcher: Run Setup 을 실행하세요.",
     });
   } else {
     findings.push({
@@ -188,7 +188,7 @@ export async function runDoctor(): Promise<Finding[]> {
 
 export function renderReport(findings: Finding[]): string {
   const icon: Record<Level, string> = { ok: "✅", warn: "⚠️", error: "❌", info: "ℹ️" };
-  const lines = ["Account Lanes — 진단 리포트", "=".repeat(40), ""];
+  const lines = ["SubSwitcher — 진단 리포트", "=".repeat(40), ""];
   for (const f of findings) {
     lines.push(`${icon[f.level]}  ${f.title}`);
     if (f.detail) {

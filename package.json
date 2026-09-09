@@ -1,6 +1,6 @@
 {
-  "name": "double-claude",
-  "displayName": "Account Lanes",
+  "name": "sub-switcher",
+  "displayName": "SubSwitcher",
   "description": "Switch between your own Claude subscriptions in VS Code without re-logging in, while every account shares the same conversation history and memory.",
   "version": "0.1.0",
   "license": "MIT",
@@ -18,45 +18,45 @@
   "contributes": {
     "commands": [
       {
-        "command": "doubleClaude.switch",
-        "title": "Account Lanes: Switch Account",
-        "category": "Account Lanes"
+        "command": "subSwitcher.switch",
+        "title": "SubSwitcher: Switch Account",
+        "category": "SubSwitcher"
       },
       {
-        "command": "doubleClaude.setup",
-        "title": "Account Lanes: Run Setup",
-        "category": "Account Lanes"
+        "command": "subSwitcher.setup",
+        "title": "SubSwitcher: Run Setup",
+        "category": "SubSwitcher"
       },
       {
-        "command": "doubleClaude.addAccount",
-        "title": "Account Lanes: Add Account Slot",
-        "category": "Account Lanes"
+        "command": "subSwitcher.addAccount",
+        "title": "SubSwitcher: Add Account Slot",
+        "category": "SubSwitcher"
       },
       {
-        "command": "doubleClaude.doctor",
-        "title": "Account Lanes: Diagnose",
-        "category": "Account Lanes"
+        "command": "subSwitcher.doctor",
+        "title": "SubSwitcher: Diagnose",
+        "category": "SubSwitcher"
       },
       {
-        "command": "doubleClaude.reset",
-        "title": "Account Lanes: Reset (restore defaults)",
-        "category": "Account Lanes"
+        "command": "subSwitcher.reset",
+        "title": "SubSwitcher: Reset (restore defaults)",
+        "category": "SubSwitcher"
       },
       {
-        "command": "doubleClaude.disableRemoteControlAutostart",
-        "title": "Account Lanes: Disable Remote Control Autostart",
-        "category": "Account Lanes"
+        "command": "subSwitcher.disableRemoteControlAutostart",
+        "title": "SubSwitcher: Disable Remote Control Autostart",
+        "category": "SubSwitcher"
       }
     ],
     "configuration": {
-      "title": "Account Lanes",
+      "title": "SubSwitcher",
       "properties": {
-        "doubleClaude.showStatusBar": {
+        "subSwitcher.showStatusBar": {
           "type": "boolean",
           "default": true,
           "description": "Show the active account in the status bar."
         },
-        "doubleClaude.statusBarAlignment": {
+        "subSwitcher.statusBarAlignment": {
           "type": "string",
           "enum": [
             "left",
@@ -65,7 +65,7 @@
           "default": "right",
           "description": "Which side of the status bar to show the account indicator on."
         },
-        "doubleClaude.promptNewConversationAfterSwitch": {
+        "subSwitcher.promptNewConversationAfterSwitch": {
           "type": "boolean",
           "default": true,
           "description": "After switching accounts, offer to open a new Claude Code conversation (running conversations keep their original account)."
@@ -94,11 +94,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/whi02/double-claude.git"
+    "url": "https://github.com/whi02/sub-switcher.git"
   },
   "author": "whiyoung",
   "bugs": {
-    "url": "https://github.com/whi02/double-claude/issues"
+    "url": "https://github.com/whi02/sub-switcher/issues"
   },
-  "homepage": "https://github.com/whi02/double-claude#readme"
+  "homepage": "https://github.com/whi02/sub-switcher#readme"
 }

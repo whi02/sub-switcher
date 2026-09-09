@@ -8,7 +8,7 @@ import { captureActiveState, describeError, resetToDefaults, resolveActiveProfil
 import { peakUtilization } from "./usage";
 
 /**
- * Account Lanes -- switch between your own Claude subscriptions in VS Code.
+ * SubSwitcher -- switch between your own Claude subscriptions in VS Code.
  *
  * What this extension does: it sets one environment variable
  * (CLAUDE_SECURESTORAGE_CONFIG_DIR) that the official Claude Code extension
@@ -33,12 +33,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("doubleClaude.switch", () => commandSwitch()),
-    vscode.commands.registerCommand("doubleClaude.setup", () => commandSetup()),
-    vscode.commands.registerCommand("doubleClaude.addAccount", () => commandAddAccount()),
-    vscode.commands.registerCommand("doubleClaude.doctor", () => commandDoctor()),
-    vscode.commands.registerCommand("doubleClaude.reset", () => commandReset()),
-    vscode.commands.registerCommand("doubleClaude.disableRemoteControlAutostart", () =>
+    vscode.commands.registerCommand("subSwitcher.switch", () => commandSwitch()),
+    vscode.commands.registerCommand("subSwitcher.setup", () => commandSetup()),
+    vscode.commands.registerCommand("subSwitcher.addAccount", () => commandAddAccount()),
+    vscode.commands.registerCommand("subSwitcher.doctor", () => commandDoctor()),
+    vscode.commands.registerCommand("subSwitcher.reset", () => commandReset()),
+    vscode.commands.registerCommand("subSwitcher.disableRemoteControlAutostart", () =>
       commandDisableRemoteControlAutostart(),
     ),
   );
@@ -49,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (
         event.affectsConfiguration("claudeCode.environmentVariables") ||
-        event.affectsConfiguration("doubleClaude")
+        event.affectsConfiguration("subSwitcher")
       ) {
         void statusBar?.refresh();
       }
@@ -151,7 +151,7 @@ async function performSwitch(profileId: string): Promise<void> {
     await statusBar?.refresh();
 
     const promptNew = vscode.workspace
-      .getConfiguration("doubleClaude")
+      .getConfiguration("subSwitcher")
       .get<boolean>("promptNewConversationAfterSwitch", true);
 
     const message =
