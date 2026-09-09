@@ -1,7 +1,6 @@
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import type { OAuthAccount } from "./claudeConfig";
-import { normalizeSlotDir, profilesFile, stateDir } from "./paths";
+import { readJson, writeJsonAtomic } from "./fsAtomic";
+import { normalizeSlotDir, profilesFile } from "./paths";
 
 /**
  * Our own state: which credential slots exist and which one is active.
@@ -48,16 +47,64 @@ export interface ProfilesState {
   version: number;
   activeId?: string;
   profiles: Profile[];
+  /**
+   * The account-scoped slice of ~/.claude.json as it was before this extension
+   * first touched it, so Reset can put it back instead of leaving whichever
+   * account was switched to last advertised in a shared config.
+   */
+  preInstallAccount?: { oauthAccount?: OAuthAccount; caches?: Record<string, unknown> };
 }
 
 export function emptyState(): ProfilesState {
   return { version: PROFILES_VERSION, profiles: [] };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validate one entry from disk.
+ *
+ * profiles.json is a path the doctor report points users at, so hand edits are
+ * expected. A missing `secureStorageDir` used to reach normalizeSlotDir and
+ * throw a TypeError out of the status bar refresh, which rejects activate() and
+ * leaves the extension with no UI at all -- so malformed entries are dropped
+ * rather than trusted.
+ */
+function parseProfile(value: unknown): Profile | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const { id, label, secureStorageDir } = value;
+  if (typeof id !== "string" || id.length === 0) {
+    return undefined;
+  }
+  if (typeof secureStorageDir !== "string" || secureStorageDir.length === 0) {
+    return undefined;
+  }
+
+  const profile: Profile = {
+    id,
+    label: typeof label === "string" && label.length > 0 ? label : id,
+    secureStorageDir,
+  };
+  if (isRecord(value["oauthAccount"])) {
+    profile.oauthAccount = value["oauthAccount"] as OAuthAccount;
+  }
+  if (isRecord(value["accountCaches"])) {
+    profile.accountCaches = value["accountCaches"];
+  }
+  if (isRecord(value["lastSeenUtilization"])) {
+    profile.lastSeenUtilization = value["lastSeenUtilization"] as UtilizationSnapshot;
+  }
+  return profile;
+}
+
 export async function loadProfiles(): Promise<ProfilesState> {
-  let raw: string;
+  let parsed: unknown;
   try {
-    raw = await fs.readFile(profilesFile(), "utf8");
+    parsed = await readJson(profilesFile());
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return emptyState();
@@ -65,31 +112,44 @@ export async function loadProfiles(): Promise<ProfilesState> {
     throw err;
   }
 
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new Error(`${profilesFile()} did not contain a JSON object`);
   }
 
-  const state = parsed as Partial<ProfilesState>;
-  return {
-    version: typeof state.version === "number" ? state.version : PROFILES_VERSION,
-    activeId: typeof state.activeId === "string" ? state.activeId : undefined,
-    profiles: Array.isArray(state.profiles) ? state.profiles : [],
-  };
+  // A newer file means a schema this build does not know how to read. Failing
+  // loudly beats silently reinterpreting it as v1 and writing that back.
+  const version = typeof parsed["version"] === "number" ? parsed["version"] : PROFILES_VERSION;
+  if (version > PROFILES_VERSION) {
+    throw new Error(
+      `${profilesFile()} was written by a newer version (v${version}; this build reads v${PROFILES_VERSION}). ` +
+        "Update the extension.",
+    );
+  }
+
+  const rawProfiles = Array.isArray(parsed["profiles"]) ? parsed["profiles"] : [];
+  const profiles: Profile[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawProfiles) {
+    const profile = parseProfile(raw);
+    if (profile && !seen.has(profile.id)) {
+      seen.add(profile.id);
+      profiles.push(profile);
+    }
+  }
+
+  const state: ProfilesState = { version: PROFILES_VERSION, profiles };
+  const activeId = parsed["activeId"];
+  if (typeof activeId === "string" && seen.has(activeId)) {
+    state.activeId = activeId;
+  }
+  if (isRecord(parsed["preInstallAccount"])) {
+    state.preInstallAccount = parsed["preInstallAccount"] as ProfilesState["preInstallAccount"];
+  }
+  return state;
 }
 
 export async function saveProfiles(state: ProfilesState): Promise<void> {
-  const dir = stateDir();
-  await fs.mkdir(dir, { recursive: true });
-  const dest = profilesFile();
-  const tmp = path.join(dir, `.profiles.json.tmp-${process.pid}-${Date.now()}`);
-  await fs.writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  try {
-    await fs.rename(tmp, dest);
-  } catch (err) {
-    await fs.rm(tmp, { force: true }).catch(() => undefined);
-    throw err;
-  }
+  await writeJsonAtomic(profilesFile(), { ...state, version: PROFILES_VERSION });
 }
 
 export function findProfile(state: ProfilesState, id: string | undefined): Profile | undefined {
@@ -133,9 +193,4 @@ export function makeProfileId(state: ProfilesState, desired: string): string {
       return candidate;
     }
   }
-}
-
-export function describeProfile(profile: Profile): string {
-  const email = profile.oauthAccount?.emailAddress;
-  return email ? `${profile.label} (${email})` : profile.label;
 }

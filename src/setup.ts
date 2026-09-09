@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { extractAccountState, type OAuthAccount } from "./claudeConfig";
-import { home, normalizeSlotDir } from "./paths";
+import { extractAccountState, readConfigIn, type OAuthAccount } from "./claudeConfig";
+import { claudeDataDir, home, normalizeSlotDir, stateDir } from "./paths";
 import {
   loadProfiles,
   makeProfileId,
@@ -25,16 +25,27 @@ const CANDIDATE_PATTERN = /^\.claude[-_].+/;
 
 export interface Candidate {
   dir: string;
-  /** Identity we could read from the slot's own .claude.json, when it has one. */
+  /** Identity we could read from the slot's own config, when it has one. */
   oauthAccount?: OAuthAccount;
   accountCaches?: Record<string, unknown>;
   utilization?: Profile["lastSeenUtilization"];
 }
 
+/** Directories that match the naming pattern but are not credential slots. */
+function excludedDirs(): Set<string> {
+  return new Set([
+    // Our own state lives at ~/.claude-accounts and matches the pattern. Offering
+    // it as a slot would register a profile whose hash names a keychain entry
+    // nobody ever logged into, so switching to it signs the user out.
+    normalizeSlotDir(stateDir()),
+    normalizeSlotDir(claudeDataDir()),
+  ]);
+}
+
 /**
  * Look for directories that already act as alternate config dirs, e.g. the
  * `~/.claude-pro2` a `CLAUDE_CONFIG_DIR=... claude` shell alias would have made.
- * Each one's own .claude.json tells us which account signed in there.
+ * Each one's own config tells us which account signed in there.
  */
 export async function discoverCandidates(): Promise<Candidate[]> {
   const root = home();
@@ -45,12 +56,17 @@ export async function discoverCandidates(): Promise<Candidate[]> {
     return [];
   }
 
+  const excluded = excludedDirs();
   const candidates: Candidate[] = [];
+
   for (const name of entries) {
     if (!CANDIDATE_PATTERN.test(name)) {
       continue;
     }
-    const dir = path.join(root, name);
+    const dir = normalizeSlotDir(path.join(root, name));
+    if (excluded.has(dir)) {
+      continue;
+    }
     try {
       if (!(await fs.stat(dir)).isDirectory()) {
         continue;
@@ -59,16 +75,16 @@ export async function discoverCandidates(): Promise<Candidate[]> {
       continue;
     }
 
-    const candidate: Candidate = { dir: normalizeSlotDir(dir) };
-    try {
-      const raw = await fs.readFile(path.join(dir, ".claude.json"), "utf8");
-      const config = JSON.parse(raw) as Record<string, unknown>;
+    const candidate: Candidate = { dir };
+    // Honours the .config.json / .claude.json precedence, so a machine on the
+    // newer layout still gets its identity read instead of silently registering
+    // an anonymous slot whose switch would wipe the shared config's account keys.
+    const config = await readConfigIn(dir);
+    if (config) {
       const { oauthAccount, caches } = extractAccountState(config);
       candidate.oauthAccount = oauthAccount;
       candidate.accountCaches = caches;
       candidate.utilization = readUtilization(config);
-    } catch {
-      // A slot without its own config is still usable; we just cannot name the account.
     }
     candidates.push(candidate);
   }
@@ -147,6 +163,48 @@ export async function runSetup(): Promise<ProfilesState | undefined> {
   return state;
 }
 
+/**
+ * A label becomes part of a directory name, so anything that could traverse out
+ * of the home directory has to be rejected -- `../evil` would otherwise resolve
+ * to ~/evil and get created.
+ */
+export function validateLabel(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "이름을 입력하세요.";
+  }
+  if (trimmed.length > 64) {
+    return "이름은 64자 이하여야 합니다.";
+  }
+  if (/[/\\]/.test(trimmed)) {
+    return "이름에 경로 구분자(/ 또는 \\)를 넣을 수 없습니다.";
+  }
+  if (trimmed === "." || trimmed === ".." || trimmed.includes("..")) {
+    return '이름에 ".."을 넣을 수 없습니다.';
+  }
+  return undefined;
+}
+
+/**
+ * The path must be absolute (or ~-relative). A relative path resolves against
+ * the extension host's working directory, which is arbitrary and differs from
+ * what the CLI would resolve in a terminal -- so its sha256 would name a
+ * keychain entry the user's `/login` never writes to, and the failure is silent.
+ */
+export function validateSlotDir(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "경로를 입력하세요.";
+  }
+  if (!trimmed.startsWith("/") && !trimmed.startsWith("~")) {
+    return "절대 경로(/ 또는 ~ 로 시작)를 입력하세요. 상대 경로는 키체인 항목이 어긋납니다.";
+  }
+  if (trimmed.split("/").includes("..")) {
+    return '경로에 ".."을 넣을 수 없습니다.';
+  }
+  return undefined;
+}
+
 /** Register a slot by path, for accounts that do not have a ~/.claude-* directory yet. */
 export async function addAccountInteractive(): Promise<ProfilesState | undefined> {
   const state = await loadProfiles();
@@ -155,26 +213,32 @@ export async function addAccountInteractive(): Promise<ProfilesState | undefined
     title: "계정 슬롯 이름",
     prompt: "상태바와 피커에 표시될 이름입니다.",
     placeHolder: "예: pro2",
-    validateInput: (value) => (value.trim().length === 0 ? "이름을 입력하세요." : undefined),
+    validateInput: validateLabel,
   });
   if (!label) {
     return undefined;
   }
+  const cleanLabel = label.trim();
 
-  const defaultDir = path.join(home(), `.claude-${label.trim().toLowerCase()}`);
+  const defaultDir = path.join(home(), `.claude-${cleanLabel.toLowerCase()}`);
   const dirInput = await vscode.window.showInputBox({
     title: "자격증명 슬롯 디렉토리",
     prompt:
       "이 경로가 키체인 항목 이름을 결정합니다. 비어 있어도 되며, 토큰은 여기 저장되지 않습니다.",
     value: defaultDir,
-    validateInput: (value) =>
-      value.trim().length === 0 ? "경로를 입력하세요." : undefined,
+    validateInput: validateSlotDir,
   });
   if (!dirInput) {
     return undefined;
   }
 
   const dir = normalizeSlotDir(dirInput.trim());
+  if (excludedDirs().has(dir)) {
+    vscode.window.showWarningMessage(
+      `${dir} 는 슬롯으로 쓸 수 없습니다. (공유 데이터 디렉토리 또는 확장 자체 상태 디렉토리)`,
+    );
+    return undefined;
+  }
   if (state.profiles.some((p) => normalizeSlotDir(p.secureStorageDir) === dir)) {
     vscode.window.showWarningMessage(`이미 등록된 슬롯입니다: ${dir}`);
     return undefined;
@@ -183,14 +247,14 @@ export async function addAccountInteractive(): Promise<ProfilesState | undefined
   await fs.mkdir(dir, { recursive: true });
 
   state.profiles.push({
-    id: makeProfileId(state, label.trim()),
-    label: label.trim(),
+    id: makeProfileId(state, cleanLabel),
+    label: cleanLabel,
     secureStorageDir: dir,
   });
   await saveProfiles(state);
 
   vscode.window.showInformationMessage(
-    `슬롯 "${label.trim()}"을 등록했습니다. 이 계정으로 아직 로그인한 적이 없다면, ` +
+    `슬롯 "${cleanLabel}"을 등록했습니다. 이 계정으로 아직 로그인한 적이 없다면, ` +
       "이 슬롯으로 전환한 뒤 Claude Code에서 /login 을 실행하세요.",
   );
   return state;

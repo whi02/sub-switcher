@@ -21,5 +21,7 @@ jobs:
       # out, no network calls, no writes into the official extension.
       - name: Compliance audit
         run: npm run audit:compliance
+      - name: Tests
+        run: npm run test
       - name: Build
         run: npm run build -- --production

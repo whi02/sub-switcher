@@ -82,9 +82,13 @@ Holding more than one subscription that you pay for and use yourself is not what
 ```bash
 npm install
 npm run watch     # then F5 in VS Code to open an Extension Development Host
-npm run typecheck
+npm run check     # typecheck + compliance audit + tests
 npm run package   # produces a .vsix
 ```
+
+`npm run test` runs against a temporary `HOME`, so it never touches your real Claude Code state.
+
+`npm run audit:compliance` enforces the three limits above against the actual source — no credential access, no shelling out, no network calls, no writes into the official extension. It self-tests against known-bad and known-good fixtures on every run, so a gate that has stopped detecting anything fails instead of passing quietly.
 
 ## License
 

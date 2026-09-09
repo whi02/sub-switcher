@@ -10,34 +10,39 @@ import { ENV_CONFIG_DIR, ENV_SECURE_STORAGE_DIR } from "./paths";
  *      change immediately and no window reload is needed.
  *   2. Conversations already running keep their own process, and therefore their
  *      own account, so switching never interrupts work in flight.
- *
- * Its `scope` is "machine", so it can only be written at the global target.
  */
 
 const SECTION = "claudeCode";
 const KEY = "environmentVariables";
 
+/** One entry as the official extension defines it, plus anything it may add later. */
 export interface EnvEntry {
   name: string;
   value: string;
+  [key: string]: unknown;
 }
 
-function readEntries(): EnvEntry[] {
-  const raw = vscode.workspace.getConfiguration(SECTION).get<unknown>(KEY);
+function toEntries(raw: unknown): EnvEntry[] {
   if (!Array.isArray(raw)) {
     return [];
   }
-  return raw.flatMap((item) => {
-    if (typeof item !== "object" || item === null) {
-      return [];
-    }
-    const { name, value } = item as Partial<EnvEntry>;
-    return typeof name === "string" ? [{ name, value: typeof value === "string" ? value : "" }] : [];
-  });
+  return raw.filter(
+    (item): item is EnvEntry =>
+      typeof item === "object" && item !== null && typeof (item as EnvEntry).name === "string",
+  );
+}
+
+/**
+ * The effective value -- defaults merged with every scope. Correct for reading
+ * what Claude Code will actually use, wrong to write back (see setEnvValue).
+ */
+function effectiveEntries(): EnvEntry[] {
+  return toEntries(vscode.workspace.getConfiguration(SECTION).get<unknown>(KEY));
 }
 
 export function getEnvValue(name: string): string | undefined {
-  return readEntries().find((entry) => entry.name === name)?.value;
+  const entry = effectiveEntries().find((e) => e.name === name);
+  return entry && typeof entry.value === "string" ? entry.value : undefined;
 }
 
 /** The credential slot the official extension will use for the next conversation. */
@@ -55,19 +60,40 @@ export function getConfiguredConfigDir(): string | undefined {
 }
 
 /**
- * Set or clear one variable, preserving every other entry the user has added.
+ * Set or clear one variable in the user's own settings.
+ *
+ * Reads `inspect().globalValue`, not the merged effective value: `get()` returns
+ * defaults ∪ global ∪ workspace, so writing that back to the global target would
+ * freeze the official extension's contributed defaults into the user's
+ * settings.json (where they stop tracking upstream) and promote any
+ * workspace-level entries machine-wide.
+ *
+ * Entries are carried across by reference so that any per-entry field the
+ * official extension adds later survives; rebuilding them as `{name, value}`
+ * would silently strip it from every entry on each switch.
+ *
  * Passing `undefined` removes the entry entirely rather than setting it empty --
  * an empty CLAUDE_SECURESTORAGE_CONFIG_DIR means "the unsuffixed keychain slot",
  * which is a different account, not "no preference".
  */
 export async function setEnvValue(name: string, value: string | undefined): Promise<void> {
-  const entries = readEntries().filter((entry) => entry.name !== name);
+  const config = vscode.workspace.getConfiguration(SECTION);
+  const existing = toEntries(config.inspect<unknown>(KEY)?.globalValue);
+
+  const next = existing.filter((entry) => entry.name !== name);
   if (value !== undefined) {
-    entries.push({ name, value });
+    const previous = existing.find((entry) => entry.name === name);
+    next.push(previous ? { ...previous, value } : { name, value });
   }
-  await vscode.workspace
-    .getConfiguration(SECTION)
-    .update(KEY, entries, vscode.ConfigurationTarget.Global);
+
+  // An empty array is still a meaningful "user has set this to nothing"; only
+  // drop back to undefined when we never had a global value to begin with.
+  const shouldClear = next.length === 0 && existing.length > 0 && value === undefined;
+  await config.update(
+    KEY,
+    shouldClear ? undefined : next,
+    vscode.ConfigurationTarget.Global,
+  );
 }
 
 export async function setSlotDir(value: string | undefined): Promise<void> {

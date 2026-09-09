@@ -30,6 +30,21 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/**
+ * `new Date(n).toISOString()` throws RangeError for finite but out-of-range
+ * values (anything beyond ±8.64e15 ms), and a corrupt or unit-mismatched
+ * fetchedAtMs is exactly that. This is called on the switch path, where an
+ * exception would abort the switch over a cosmetic timestamp.
+ */
+function msToIso(value: unknown): string | undefined {
+  const ms = asNumber(value);
+  if (ms === undefined) {
+    return undefined;
+  }
+  const at = new Date(ms);
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
+
 /** Pull the five-hour and seven-day windows out of `cachedUsageUtilization`. */
 export function readUtilization(config: ClaudeConfig): UtilizationSnapshot | undefined {
   const raw = config["cachedUsageUtilization"] as RawUtilization | undefined;
@@ -41,13 +56,11 @@ export function readUtilization(config: ClaudeConfig): UtilizationSnapshot | und
   const fiveHour = windows["five_hour"] ?? undefined;
   const sevenDay = windows["seven_day"] ?? undefined;
 
-  const fetchedAtMs = asNumber(raw.fetchedAtMs);
-
   const snapshot: UtilizationSnapshot = {
     fiveHour: asNumber(fiveHour?.utilization),
     sevenDay: asNumber(sevenDay?.utilization),
     resetsAt: asString(sevenDay?.resets_at),
-    fetchedAt: fetchedAtMs !== undefined ? new Date(fetchedAtMs).toISOString() : undefined,
+    fetchedAt: msToIso(raw.fetchedAtMs),
     accountUuid: asString(raw.accountUuid),
   };
 

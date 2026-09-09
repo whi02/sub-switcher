@@ -1,10 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import {
-  backupsDir,
-  claudeAltConfigFile,
-  claudeConfigFile,
-} from "./paths";
+import { pathExists, readJson, writeJsonAtomic } from "./fsAtomic";
+import { backupsDir, claudeAltConfigFile, claudeConfigFile } from "./paths";
 
 /**
  * Read/write access to Claude Code's shared config file (~/.claude.json).
@@ -47,42 +44,55 @@ export interface OAuthAccount {
   [key: string]: unknown;
 }
 
-/** Resolve the config file the CLI actually uses, honouring the newer .config.json layout. */
+/**
+ * Resolve the config file inside a Claude data directory.
+ *
+ * Claude Code prefers `<dataDir>/.config.json` when it exists and otherwise
+ * falls back to `<dataDir>/.claude.json`. Every place that reads a config --
+ * the shared one and each slot's own -- must apply the same precedence, or a
+ * machine on the newer layout silently reads nothing.
+ */
+export async function resolveConfigPathIn(
+  dataDir: string,
+  fallbackFile: string,
+): Promise<string> {
+  const preferred = path.join(dataDir, ".config.json");
+  return (await pathExists(preferred)) ? preferred : fallbackFile;
+}
+
+/** The shared config the official extension uses when CLAUDE_CONFIG_DIR is unset. */
 export async function resolveConfigPath(): Promise<string> {
-  const alt = claudeAltConfigFile();
-  try {
-    await fs.access(alt);
-    return alt;
-  } catch {
-    return claudeConfigFile();
+  return resolveConfigPathIn(path.dirname(claudeAltConfigFile()), claudeConfigFile());
+}
+
+function assertObject(value: unknown, source: string): ClaudeConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${source} did not contain a JSON object`);
   }
+  return value as ClaudeConfig;
 }
 
 export async function readConfig(): Promise<{ path: string; config: ClaudeConfig }> {
   const configPath = await resolveConfigPath();
-  const raw = await fs.readFile(configPath, "utf8");
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${configPath} did not contain a JSON object`);
-  }
-  return { path: configPath, config: parsed as ClaudeConfig };
+  return { path: configPath, config: assertObject(await readJson(configPath), configPath) };
 }
 
 /**
- * Write the config back atomically: temp file in the same directory, then rename.
- * A crashed write must never leave the user with a truncated ~/.claude.json.
+ * Read the config belonging to some other data directory, e.g. a slot's own
+ * `~/.claude-pro2/.claude.json`, honouring the same `.config.json` precedence.
+ * Returns undefined when the slot has no config yet, which is normal.
  */
-export async function writeConfig(configPath: string, config: ClaudeConfig): Promise<void> {
-  const dir = path.dirname(configPath);
-  const tmp = path.join(dir, `.claude.json.tmp-${process.pid}-${Date.now()}`);
-  const body = `${JSON.stringify(config, null, 2)}\n`;
-  await fs.writeFile(tmp, body, { mode: 0o600 });
+export async function readConfigIn(dataDir: string): Promise<ClaudeConfig | undefined> {
+  const configPath = await resolveConfigPathIn(dataDir, path.join(dataDir, ".claude.json"));
   try {
-    await fs.rename(tmp, configPath);
-  } catch (err) {
-    await fs.rm(tmp, { force: true }).catch(() => undefined);
-    throw err;
+    return assertObject(await readJson(configPath), configPath);
+  } catch {
+    return undefined;
   }
+}
+
+export async function writeConfig(configPath: string, config: ClaudeConfig): Promise<void> {
+  await writeJsonAtomic(configPath, config);
 }
 
 /** Snapshot the config before we modify it. Returns the backup path. */
@@ -92,11 +102,12 @@ export async function backupConfig(configPath: string, keep = 10): Promise<strin
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dest = path.join(dir, `claude.json.${stamp}`);
   await fs.copyFile(configPath, dest);
-  await pruneBackups(dir, keep);
+  await pruneBackups(dir, keep, dest);
   return dest;
 }
 
-async function pruneBackups(dir: string, keep: number): Promise<void> {
+/** Keep the most recent `keep` backups, never deleting the one just taken. */
+async function pruneBackups(dir: string, keep: number, protect: string): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
@@ -105,7 +116,11 @@ async function pruneBackups(dir: string, keep: number): Promise<void> {
   }
   const backups = entries.filter((name) => name.startsWith("claude.json.")).sort();
   for (const stale of backups.slice(0, Math.max(0, backups.length - keep))) {
-    await fs.rm(path.join(dir, stale), { force: true }).catch(() => undefined);
+    const full = path.join(dir, stale);
+    if (full === protect) {
+      continue;
+    }
+    await fs.rm(full, { force: true }).catch(() => undefined);
   }
 }
 
@@ -128,34 +143,42 @@ export function extractAccountState(config: ClaudeConfig): {
   return { oauthAccount, caches };
 }
 
-/**
- * Apply a profile's snapshot onto the config.
- *
- * When a profile has no snapshot yet (a freshly added slot) we *delete* the
- * account-scoped keys rather than leaving the other account's values behind,
- * so Claude Code repopulates them from its own next API response.
- */
+export interface AccountState {
+  oauthAccount?: OAuthAccount;
+  caches?: Record<string, unknown>;
+}
+
+export interface CommitResult {
+  /** The config as it stood before this call. Restore from here to undo. */
+  backupPath: string;
+  configPath: string;
+}
+
 /**
  * Read, swap the account-scoped slice, write, and confirm it landed.
  *
  * Claude Code rewrites ~/.claude.json on its own schedule and does not take a
  * lock around it (its proper-lockfile usage covers credential storage, not this
- * file), so a running Claude process can overwrite us between our read and our
- * write. The window is milliseconds and the consequence is cosmetic -- the UI
- * would show the previous account's email while the correct token is in use --
- * but it is cheap to notice and retry, so we do.
+ * file), so a running Claude process can overwrite us between our write and our
+ * read-back.
  *
- * Returns the backup path taken before the first successful write.
+ * The backup is taken once, before the first write, so it is always the true
+ * pre-switch state -- taking it inside the loop would snapshot our own
+ * half-applied change and make the caller's rollback restore that instead. If
+ * every attempt loses the race we restore from that backup ourselves, so a
+ * thrown error really does mean the config is untouched.
  */
 export async function commitAccountState(
-  state: { oauthAccount?: OAuthAccount; caches?: Record<string, unknown> },
+  state: AccountState,
   attempts = 3,
-): Promise<{ backupPath: string; configPath: string }> {
+): Promise<CommitResult> {
+  const { path: configPath, config: original } = await readConfig();
+  const backupPath = await backupConfig(configPath);
   let lastMismatch: string | undefined;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const { path: configPath, config } = await readConfig();
-    const backupPath = await backupConfig(configPath);
+    // Re-read each time: a racing writer may have added unrelated keys we must keep.
+    const { config } = attempt === 1 ? { config: original } : await readConfig();
     await writeConfig(configPath, applyAccountState(config, state));
 
     const { config: verified } = await readConfig();
@@ -168,16 +191,22 @@ export async function commitAccountState(
     lastMismatch = `expected ${expected ?? "(none)"}, found ${observed ?? "(none)"}`;
   }
 
+  // Leave the config exactly as we found it rather than half-switched.
+  await restoreConfig(backupPath, configPath).catch(() => undefined);
   throw new Error(
     `Another process kept rewriting Claude Code's config while switching (${lastMismatch}). ` +
       "Close running Claude conversations and try again.",
   );
 }
 
-export function applyAccountState(
-  config: ClaudeConfig,
-  state: { oauthAccount?: OAuthAccount; caches?: Record<string, unknown> },
-): ClaudeConfig {
+/**
+ * Apply a profile's snapshot onto the config.
+ *
+ * When a profile has no snapshot yet (a freshly added slot) we *delete* the
+ * account-scoped keys rather than leaving the other account's values behind,
+ * so Claude Code repopulates them from its own next API response.
+ */
+export function applyAccountState(config: ClaudeConfig, state: AccountState): ClaudeConfig {
   const caches = state.caches ?? {};
 
   // What each managed key should become: a value, or absent.

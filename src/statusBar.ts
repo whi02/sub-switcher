@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { loadProfiles, type Profile, type ProfilesState } from "./profiles";
-import { resolveActiveProfile } from "./switcher";
+import { resolveActive } from "./switcher";
 import { formatAge, formatResetsAt, isCrossAccountStale, peakUtilization } from "./usage";
 
 /**
@@ -51,10 +51,29 @@ export class AccountStatusBar {
     }
 
     this.item.command = "doubleClaude.switch";
-    const active = resolveActiveProfile(state);
+    const resolution = resolveActive(state);
 
-    if (!active) {
-      this.item.text = "$(account) Lanes: 미지정";
+    // The two "no active profile" states have different causes and different
+    // fixes, so they must not share a message: right after Run Setup no slot is
+    // configured at all, and telling the user their setting fails to match sends
+    // them looking for a misconfiguration that does not exist.
+    if (resolution.kind === "unconfigured") {
+      this.item.text = "$(account) Lanes: 계정 선택";
+      this.item.tooltip = new vscode.MarkdownString(
+        [
+          "**아직 계정을 선택하지 않았습니다.**",
+          "",
+          "Claude Code는 접미사 없는 기본 키체인 항목을 사용하고 있습니다.",
+          "",
+          "_클릭: 계정 선택_",
+        ].join("\n"),
+      );
+      this.item.show();
+      return;
+    }
+
+    if (resolution.kind === "unknown-slot") {
+      this.item.text = "$(account) Lanes: 미지정 슬롯";
       this.item.tooltip = new vscode.MarkdownString(
         [
           "**등록되지 않은 자격증명 슬롯이 설정되어 있습니다.**",
@@ -62,13 +81,16 @@ export class AccountStatusBar {
           "`claudeCode.environmentVariables`의 `CLAUDE_SECURESTORAGE_CONFIG_DIR` 값이",
           "등록된 계정 슬롯 중 어느 것과도 일치하지 않습니다.",
           "",
-          "클릭해서 계정을 선택하세요.",
+          `현재 값: \`${resolution.slotDir}\``,
+          "",
+          "_클릭: 계정 선택_",
         ].join("\n"),
       );
       this.item.show();
       return;
     }
 
+    const active = resolution.profile;
     const peak = peakUtilization(active.lastSeenUtilization);
     this.item.text =
       peak !== undefined

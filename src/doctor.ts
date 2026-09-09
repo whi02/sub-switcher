@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
-import * as fs from "node:fs/promises";
 import { readConfig, resolveConfigPath } from "./claudeConfig";
+import { pathExists } from "./fsAtomic";
 import { getConfiguredConfigDir, getConfiguredSlotDir } from "./envSettings";
 import {
   claudeDataDir,
@@ -43,21 +43,12 @@ export function keychainServiceName(slotDir: string): string {
   return `Claude Code-credentials-${hash}`;
 }
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function runDoctor(): Promise<Finding[]> {
   const findings: Finding[] = [];
 
   // --- Shared data directory -------------------------------------------------
   const dataDir = claudeDataDir();
-  const dataDirExists = await exists(dataDir);
+  const dataDirExists = await pathExists(dataDir);
   findings.push({
     level: dataDirExists ? "ok" : "error",
     title: dataDirExists ? "공유 데이터 디렉토리" : "공유 데이터 디렉토리 없음",
@@ -65,7 +56,7 @@ export async function runDoctor(): Promise<Finding[]> {
   });
 
   const configPath = await resolveConfigPath();
-  const configExists = await exists(configPath);
+  const configExists = await pathExists(configPath);
   findings.push({
     level: configExists ? "ok" : "error",
     title: configExists ? "공유 설정 파일" : "공유 설정 파일 없음",
@@ -111,7 +102,7 @@ export async function runDoctor(): Promise<Finding[]> {
   for (const profile of state.profiles) {
     const dir = normalizeSlotDir(profile.secureStorageDir);
     const service = keychainServiceName(dir);
-    const dirExists = await exists(dir);
+    const dirExists = await pathExists(dir);
     findings.push({
       level: dirExists ? "ok" : "warn",
       title: `슬롯 "${profile.label}"`,

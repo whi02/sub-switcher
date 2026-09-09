@@ -73,14 +73,15 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "audit:compliance": "node scripts/compliance-audit.mjs",
-    "check": "npm run typecheck && npm run audit:compliance",
-    "package": "npm run check && npm run build -- --production && vsce package --no-dependencies",
-    "vscode:prepublish": "npm run build -- --production"
+    "check": "npm run typecheck && npm run audit:compliance && npm run test",
+    "package": "npm run check && npm run build -- --production && npx --yes @vscode/vsce package --no-dependencies",
+    "vscode:prepublish": "npm run build -- --production",
+    "test": "node esbuild.mjs --test && node dist-test/run.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.94.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "0.24.2",
     "typescript": "^5.7.0"
   },
   "allowScripts": {
