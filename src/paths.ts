@@ -39,6 +39,15 @@ export function claudeAltConfigFile(): string {
   return path.join(claudeDataDir(), ".config.json");
 }
 
+/**
+ * The shared Claude Code user settings file. Keys like `remoteControlAtStartup`
+ * live here, and because we never move CLAUDE_CONFIG_DIR it is one file both
+ * accounts read.
+ */
+export function claudeSettingsFile(): string {
+  return path.join(claudeDataDir(), "settings.json");
+}
+
 /** Our own state directory. Holds profiles.json and .claude.json backups. Never secrets. */
 export function stateDir(): string {
   return path.join(home(), ".claude-accounts");

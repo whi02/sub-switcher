@@ -35,7 +35,8 @@ const { applyAccountState, resolveConfigPathIn, commitAccountState, readConfig }
 const { setEnvValue, getConfiguredSlotDir } = await import("../src/envSettings");
 const { switchTo, resetToDefaults, resolveActive } = await import("../src/switcher");
 const { writeJsonAtomic } = await import("../src/fsAtomic");
-const { profilesFile, stateDir, normalizeSlotDir, claudeConfigFile } = await import("../src/paths");
+const { profilesFile, stateDir, normalizeSlotDir, claudeConfigFile, claudeSettingsFile } = await import("../src/paths");
+const { readRemoteControlState, setRemoteControlAtStartup } = await import("../src/remoteControl");
 
 let failed = 0;
 let passed = 0;
@@ -335,6 +336,42 @@ describe("a swap that cannot be verified restores rather than half-applying");
     JSON.stringify((await readConfig()).config) === before,
   );
   it("still has the identity it started with", before.includes("uuid-a"));
+}
+
+describe("Remote Control autostart detection and toggle");
+{
+  await freshSandbox();
+  await fs.mkdir(path.join(sandbox, ".claude"), { recursive: true });
+
+  const absent = await readRemoteControlState();
+  it("treats an absent key as still account-binding", absent.bindsNewConversations === true);
+  it("reports the key as unconfigured", absent.configured === undefined);
+
+  // A settings file with unrelated keys must survive the toggle untouched.
+  await fs.writeFile(
+    claudeSettingsFile(),
+    JSON.stringify({ theme: "dark", model: "sonnet" }, null, 2),
+  );
+  await setRemoteControlAtStartup(false);
+
+  const after = await readRemoteControlState();
+  it("records the explicit false", after.configured === false);
+  it("no longer binds new conversations", after.bindsNewConversations === false);
+
+  const merged = JSON.parse(await fs.readFile(claudeSettingsFile(), "utf8"));
+  it("keeps the user's other settings", merged.theme === "dark" && merged.model === "sonnet");
+  it("writes the boolean, not a string", merged.remoteControlAtStartup === false);
+
+  // Malformed settings must not be clobbered.
+  await fs.writeFile(claudeSettingsFile(), "{ not json");
+  let threw = false;
+  try {
+    await setRemoteControlAtStartup(false);
+  } catch {
+    threw = true;
+  }
+  it("refuses to overwrite invalid JSON", threw);
+  it("leaves the broken file as-is", (await fs.readFile(claudeSettingsFile(), "utf8")) === "{ not json");
 }
 
 // ---------------------------------------------------------------------------

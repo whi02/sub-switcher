@@ -41,6 +41,11 @@
         "command": "doubleClaude.reset",
         "title": "Account Lanes: Reset (restore defaults)",
         "category": "Account Lanes"
+      },
+      {
+        "command": "doubleClaude.disableRemoteControlAutostart",
+        "title": "Account Lanes: Disable Remote Control Autostart",
+        "category": "Account Lanes"
       }
     ],
     "configuration": {

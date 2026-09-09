@@ -43,6 +43,14 @@ Because `~/.claude.json` is shared, it caches whichever account was last active 
 
 Those fields are identity metadata and cached numbers. **They are not credentials, and this extension never touches credentials.**
 
+### Remote Control binds a conversation to one account
+
+When Remote Control (the claude.ai/code bridge) is active for a conversation, that conversation's session lives on Anthropic's servers **owned by the account that started it**. Switching the local credential slot cannot move it: resuming a bridge session under the other account makes the native binary report `account_mismatch`, and it stays with its owner. A server-side default currently starts Remote Control for every session, so by default *every* conversation is account-bound.
+
+If you want to start work on one subscription and continue it on the other, run **`Account Lanes: Disable Remote Control Autostart`**. It writes `"remoteControlAtStartup": false` into `~/.claude/settings.json` (one file, shared by both accounts). New conversations then start as plain local sessions, which resume under either account with full history and shared memory. You can still turn Remote Control on by hand for a specific session when you need it.
+
+Conversations that were *already* created as bridge sessions still resume cross-account for their text — you just will not get Remote Control revived on them under the other account.
+
 ## Usage
 
 | Command | What it does |
@@ -52,6 +60,7 @@ Those fields are identity metadata and cached numbers. **They are not credential
 | `Account Lanes: Add Account Slot` | Registers a slot by path, for an account you have not signed into yet |
 | `Account Lanes: Diagnose` | Health report: shared paths, slot → keychain name mapping, stale caches |
 | `Account Lanes: Reset (restore defaults)` | Removes the environment entry; Claude Code returns to its pre-install behaviour |
+| `Account Lanes: Disable Remote Control Autostart` | Sets `remoteControlAtStartup: false` so new conversations are not account-bound (see below) |
 
 The status bar shows the account the **next** conversation will use, plus the last observed quota. Its tooltip always states how old that number is — see below for why it cannot be live.
 

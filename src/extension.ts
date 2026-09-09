@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { renderReport, runDoctor } from "./doctor";
 import { loadProfiles, saveProfiles, type Profile } from "./profiles";
+import { readRemoteControlState, setRemoteControlAtStartup } from "./remoteControl";
 import { addAccountInteractive, runSetup } from "./setup";
 import { AccountStatusBar } from "./statusBar";
 import { captureActiveState, describeError, resetToDefaults, resolveActiveProfile, switchTo } from "./switcher";
@@ -37,6 +38,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("doubleClaude.addAccount", () => commandAddAccount()),
     vscode.commands.registerCommand("doubleClaude.doctor", () => commandDoctor()),
     vscode.commands.registerCommand("doubleClaude.reset", () => commandReset()),
+    vscode.commands.registerCommand("doubleClaude.disableRemoteControlAutostart", () =>
+      commandDisableRemoteControlAutostart(),
+    ),
   );
 
   // The user can edit the environment setting by hand, and the status bar's own
@@ -163,6 +167,8 @@ async function performSwitch(profileId: string): Promise<void> {
     if (action === "새 대화 시작") {
       await openNewConversation();
     }
+
+    await maybeWarnRemoteControlBinding(result.to.label);
   } catch (err) {
     vscode.window.showErrorMessage(`계정 전환 실패: ${describeError(err)}`);
   }
@@ -193,6 +199,7 @@ async function commandSetup(): Promise<void> {
       vscode.window.showInformationMessage(
         `계정 슬롯 ${state.profiles.length}개를 등록했습니다. 상태바에서 전환할 수 있습니다.`,
       );
+      await maybeWarnRemoteControlBinding(state.profiles[0]?.label ?? "다른");
     }
   } catch (err) {
     vscode.window.showErrorMessage(`설정 실패: ${describeError(err)}`);
@@ -220,6 +227,73 @@ async function commandDoctor(): Promise<void> {
   } catch (err) {
     vscode.window.showErrorMessage(`진단 실패: ${describeError(err)}`);
   }
+}
+
+/**
+ * Remote Control ties a conversation to the account that started it. Mention it
+ * once, the first time the user switches, so the "why did my old conversation
+ * jump back to the other account" surprise is pre-empted rather than debugged.
+ */
+async function maybeWarnRemoteControlBinding(targetLabel: string): Promise<void> {
+  let rc;
+  try {
+    rc = await readRemoteControlState();
+  } catch {
+    return;
+  }
+  if (!rc.bindsNewConversations) {
+    return;
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    "Remote Control 자동 시작이 켜져 있어, 기존 대화는 각자 만든 계정에 묶여 있습니다. " +
+      `${targetLabel} 계정에서 이전 대화를 이어받으려면 자동 시작을 꺼야 합니다.`,
+    "자동 시작 끄기",
+    "나중에",
+  );
+  if (choice === "자동 시작 끄기") {
+    await commandDisableRemoteControlAutostart();
+  }
+}
+
+async function commandDisableRemoteControlAutostart(): Promise<void> {
+  let rc;
+  try {
+    rc = await readRemoteControlState();
+  } catch (err) {
+    vscode.window.showErrorMessage(`Remote Control 설정 확인 실패: ${describeError(err)}`);
+    return;
+  }
+
+  if (rc.configured === false) {
+    vscode.window.showInformationMessage(
+      "이미 Remote Control 자동 시작이 꺼져 있습니다. 새 대화는 계정 간에 이어받을 수 있습니다.",
+    );
+    return;
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    `${rc.settingsPath} 에 "remoteControlAtStartup": false 를 기록합니다. ` +
+      "이후 새 대화는 로컬 세션으로 시작되어 어느 계정으로도 이어서 작업할 수 있습니다. " +
+      "특정 대화에서 Remote Control이 필요하면 그 세션에서 직접 켜면 됩니다. " +
+      "이미 만들어진 브리지 대화는 내용은 이어지지만 다른 계정에서 Remote Control이 되살아나지 않습니다.",
+    { modal: true },
+    "끄기",
+  );
+  if (confirm !== "끄기") {
+    return;
+  }
+
+  try {
+    await setRemoteControlAtStartup(false);
+    vscode.window.showInformationMessage(
+      "Remote Control 자동 시작을 껐습니다. 지금 실행 중인 대화는 영향을 받지 않으며, " +
+        "새로 시작하는 대화부터 적용됩니다.",
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(`설정 변경 실패: ${describeError(err)}`);
+  }
+  await statusBar?.refresh();
 }
 
 async function commandReset(): Promise<void> {

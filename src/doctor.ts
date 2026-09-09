@@ -9,6 +9,7 @@ import {
   profilesFile,
 } from "./paths";
 import { loadProfiles } from "./profiles";
+import { readRemoteControlState } from "./remoteControl";
 import { resolveActiveProfile } from "./switcher";
 import { readUtilization } from "./usage";
 
@@ -80,6 +81,32 @@ export async function runDoctor(): Promise<Finding[]> {
         "이 값이 설정되면 설정 파일 경로가 ~/.claude.json 에서 " +
         "<CLAUDE_CONFIG_DIR>/.claude.json 로 바뀌고, 계정 간 히스토리·메모리 공유가 깨집니다. " +
         "claudeCode.environmentVariables 에서 이 항목을 제거하는 것을 권장합니다.",
+    });
+  }
+
+  // --- Remote Control binds conversations to their creating account ---------
+  const rc = await readRemoteControlState();
+  if (rc.configured === false) {
+    findings.push({
+      level: "ok",
+      title: "Remote Control 자동 시작 꺼짐",
+      detail:
+        "새 대화가 로컬 세션으로 시작되어, 어느 계정으로도 이어서 작업할 수 있습니다.\n" +
+        `설정 위치: ${rc.settingsPath}`,
+    });
+  } else {
+    findings.push({
+      level: "warn",
+      title:
+        rc.configured === true
+          ? "Remote Control 자동 시작이 켜져 있습니다"
+          : "Remote Control 자동 시작이 켜져 있을 수 있습니다 (서버 기본값)",
+      detail:
+        "Remote Control 브리지 세션은 만든 계정에 서버 측에서 묶입니다. 다른 계정으로 전환한 뒤 " +
+        "그 대화를 열면 원래 계정으로 되돌아갑니다 (대화 내용 자체는 이어짐).\n" +
+        "계정 간에 대화를 자유롭게 이어받으려면 자동 시작을 끄세요: " +
+        "Account Lanes: Disable Remote Control Autostart\n" +
+        `설정 위치: ${rc.settingsPath} 의 "remoteControlAtStartup"`,
     });
   }
 
