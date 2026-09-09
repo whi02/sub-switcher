@@ -86,6 +86,20 @@ Holding more than one subscription that you pay for and use yourself is not what
 - The official `anthropic.claude-code` extension
 - Each account already signed in once via `CLAUDE_CONFIG_DIR=<slot> claude` + `/login`, or via this extension's Add Account flow
 
+## Install
+
+Not published to the VS Code Marketplace. Build a `.vsix` and sideload it:
+
+```bash
+git clone https://github.com/whi02/double-claude.git
+cd double-claude
+npm install
+npm run package               # produces double-claude-<version>.vsix
+code --install-extension double-claude-*.vsix
+```
+
+Reload VS Code, then run `Account Lanes: Run Setup` from the command palette.
+
 ## Development
 
 ```bash
@@ -98,6 +112,10 @@ npm run package   # produces a .vsix
 `npm run test` runs against a temporary `HOME`, so it never touches your real Claude Code state.
 
 `npm run audit:compliance` enforces the three limits above against the actual source — no credential access, no shelling out, no network calls, no writes into the official extension. It self-tests against known-bad and known-good fixtures on every run, so a gate that has stopped detecting anything fails instead of passing quietly.
+
+## Status
+
+A personal project, solo-maintained. Issues are welcome, but treat this as best-effort rather than a supported product — no SLA on response time, and pull requests may sit unreviewed for a while.
 
 ## License
 
