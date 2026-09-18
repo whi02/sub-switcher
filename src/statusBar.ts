@@ -1,4 +1,12 @@
 import * as vscode from "vscode";
+import {
+  codexProfileForHome,
+  effectiveCodexHome,
+  findCodexProfile,
+  loadCodexState,
+  normalizeCodexHome,
+  type CodexState,
+} from "./codex";
 import { loadProfiles, type Profile, type ProfilesState } from "./profiles";
 import { resolveActive } from "./switcher";
 import { formatAge, formatResetsAt, isCrossAccountStale, peakUtilization } from "./usage";
@@ -10,15 +18,21 @@ import { formatAge, formatResetsAt, isCrossAccountStale, peakUtilization } from 
  * how old it is. We cannot poll a signed-out account's quota without holding its
  * token, so pretending these are live would be a lie the user might act on.
  */
+function configuredAlignment(): vscode.StatusBarAlignment {
+  return vscode.workspace.getConfiguration("subSwitcher").get<string>("statusBarAlignment") === "left"
+    ? vscode.StatusBarAlignment.Left
+    : vscode.StatusBarAlignment.Right;
+}
+
+function statusBarEnabled(): boolean {
+  return vscode.workspace.getConfiguration("subSwitcher").get<boolean>("showStatusBar", true);
+}
+
 export class AccountStatusBar {
   private readonly item: vscode.StatusBarItem;
 
   constructor() {
-    const alignment =
-      vscode.workspace.getConfiguration("subSwitcher").get<string>("statusBarAlignment") === "left"
-        ? vscode.StatusBarAlignment.Left
-        : vscode.StatusBarAlignment.Right;
-    this.item = vscode.window.createStatusBarItem(alignment, 100);
+    this.item = vscode.window.createStatusBarItem(configuredAlignment(), 100);
     this.item.command = "subSwitcher.switch";
   }
 
@@ -27,7 +41,7 @@ export class AccountStatusBar {
   }
 
   async refresh(): Promise<void> {
-    if (!vscode.workspace.getConfiguration("subSwitcher").get<boolean>("showStatusBar", true)) {
+    if (!statusBarEnabled()) {
       this.item.hide();
       return;
     }
@@ -144,5 +158,76 @@ export class AccountStatusBar {
     const md = new vscode.MarkdownString(lines.join("\n"));
     md.supportThemeIcons = true;
     return md;
+  }
+}
+
+/**
+ * Which Codex account this window's app-server uses. That is fixed when the
+ * window loads, so a saved choice that differs is shown as pending a reload.
+ */
+export class CodexStatusBar {
+  private readonly item: vscode.StatusBarItem;
+
+  constructor() {
+    this.item = vscode.window.createStatusBarItem(configuredAlignment(), 99);
+    this.item.command = "subSwitcher.switchCodex";
+  }
+
+  dispose(): void {
+    this.item.dispose();
+  }
+
+  refresh(): void {
+    if (!statusBarEnabled()) {
+      this.item.hide();
+      return;
+    }
+
+    let state: CodexState;
+    try {
+      state = loadCodexState();
+    } catch {
+      this.item.text = "$(account) Codex: 상태 읽기 실패";
+      this.item.tooltip = "codex-profiles.json을 읽지 못했습니다. SubSwitcher: Diagnose를 실행하세요.";
+      this.item.show();
+      return;
+    }
+
+    // Claude-only users never see this item.
+    if (state.profiles.length === 0) {
+      this.item.hide();
+      return;
+    }
+
+    const home = effectiveCodexHome();
+    const current = codexProfileForHome(state, home);
+    const saved = findCodexProfile(state, state.activeId);
+    const pending = saved !== undefined && saved.id !== current?.id;
+
+    this.item.text = `$(account) Codex: ${current?.label ?? "미등록 경로"}${pending ? " $(sync)" : ""}`;
+
+    const lines: string[] = ["**SubSwitcher · Codex**", ""];
+    for (const profile of state.profiles) {
+      const marker = profile.id === current?.id ? "●" : "○";
+      const note = pending && profile.id === saved?.id ? " — _다시 로드하면 적용_" : "";
+      lines.push(`${marker} **${profile.label}** — \`${normalizeCodexHome(profile.codexHome)}\`${note}`);
+    }
+    if (!current) {
+      lines.push("", `이 창의 CODEX_HOME \`${home}\` 은 등록된 슬롯이 아닙니다.`);
+    }
+    lines.push(
+      "",
+      "---",
+      "Codex는 계정마다 로그인·설정·기록을 따로 저장합니다.",
+      "",
+      "전환은 **창을 다시 로드해야** 적용됩니다.",
+      "",
+      "_클릭: Codex 계정 전환_",
+    );
+
+    const md = new vscode.MarkdownString(lines.join("\n"));
+    md.supportThemeIcons = true;
+    this.item.tooltip = md;
+    this.item.show();
   }
 }

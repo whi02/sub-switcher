@@ -61,6 +61,17 @@ export function backupsDir(): string {
   return path.join(stateDir(), "backups");
 }
 
+export const ENV_CODEX_HOME = "CODEX_HOME";
+
+/** Where Codex keeps config, sessions and sign-in when CODEX_HOME is unset. */
+export function defaultCodexHome(): string {
+  return path.join(home(), ".codex");
+}
+
+export function codexProfilesFile(): string {
+  return path.join(stateDir(), "codex-profiles.json");
+}
+
 /** Expand a leading ~ so profiles.json stays readable while env values stay absolute. */
 export function expandHome(p: string): string {
   if (p === "~") {

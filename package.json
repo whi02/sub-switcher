@@ -1,7 +1,7 @@
 {
   "name": "sub-switcher",
   "displayName": "SubSwitcher",
-  "description": "Switch between your own Claude subscriptions in VS Code without re-logging in, while every account shares the same conversation history and memory.",
+  "description": "Switch between your own Claude subscriptions in VS Code without re-logging in, while every account shares the same conversation history and memory. Also switches Codex accounts, one CODEX_HOME per account.",
   "version": "0.1.0",
   "license": "MIT",
   "publisher": "whiyoung",
@@ -13,7 +13,7 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "*"
   ],
   "contributes": {
     "commands": [
@@ -45,6 +45,16 @@
       {
         "command": "subSwitcher.disableRemoteControlAutostart",
         "title": "SubSwitcher: Disable Remote Control Autostart",
+        "category": "SubSwitcher"
+      },
+      {
+        "command": "subSwitcher.switchCodex",
+        "title": "SubSwitcher: Switch Codex Account",
+        "category": "SubSwitcher"
+      },
+      {
+        "command": "subSwitcher.addCodexAccount",
+        "title": "SubSwitcher: Add Codex Account Slot",
         "category": "SubSwitcher"
       }
     ],

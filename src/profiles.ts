@@ -176,7 +176,7 @@ export function profileForSlotDir(
 }
 
 /** Turn a free-form label into a slug that is unique within the state. */
-export function makeProfileId(state: ProfilesState, desired: string): string {
+export function makeProfileId(state: { profiles: readonly { id: string }[] }, desired: string): string {
   const base =
     desired
       .toLowerCase()

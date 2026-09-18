@@ -37,6 +37,16 @@ const { switchTo, resetToDefaults, resolveActive } = await import("../src/switch
 const { writeJsonAtomic } = await import("../src/fsAtomic");
 const { profilesFile, stateDir, normalizeSlotDir, claudeConfigFile, claudeSettingsFile } = await import("../src/paths");
 const { readRemoteControlState, setRemoteControlAtStartup } = await import("../src/remoteControl");
+const {
+  applyActiveCodexHome,
+  discoverCodexHomes,
+  effectiveCodexHome,
+  loadCodexState,
+  saveCodexState,
+  selectCodexProfile,
+} = await import("../src/codex");
+const { addCodexAccountInteractive } = await import("../src/codexSetup");
+const { codexProfilesFile, defaultCodexHome } = await import("../src/paths");
 
 let failed = 0;
 let passed = 0;
@@ -373,6 +383,143 @@ describe("Remote Control autostart detection and toggle");
   }
   it("refuses to overwrite invalid JSON", threw);
   it("leaves the broken file as-is", (await fs.readFile(claudeSettingsFile(), "utf8")) === "{ not json");
+}
+
+describe("the first save on a fresh machine creates the state directory");
+{
+  await freshSandbox();
+  let threw = false;
+  try {
+    await saveProfiles({ version: 1, profiles: [] });
+  } catch {
+    threw = true;
+  }
+  it("does not fail because ~/.claude-accounts is missing", !threw);
+  it("writes profiles.json", (await loadProfiles()).profiles.length === 0 && !threw);
+}
+
+describe("Codex slot discovery");
+{
+  await freshSandbox();
+  await fs.mkdir(path.join(sandbox, ".codex"), { recursive: true });
+  await fs.mkdir(path.join(sandbox, ".codex-work"), { recursive: true });
+  await fs.mkdir(path.join(sandbox, ".codex_personal"), { recursive: true });
+  await fs.mkdir(path.join(sandbox, ".codexfoo"), { recursive: true });
+  await fs.writeFile(path.join(sandbox, ".codex-notes"), "not a directory");
+
+  const found = await discoverCodexHomes();
+  it("offers the default ~/.codex first", found[0] === defaultCodexHome(), found.join(", "));
+  it(
+    "finds ~/.codex-* and ~/.codex_* directories",
+    found.includes(path.join(sandbox, ".codex-work")) &&
+      found.includes(path.join(sandbox, ".codex_personal")),
+  );
+  it(
+    "skips files and names that only start with .codex",
+    found.length === 3,
+    found.join(", "),
+  );
+}
+
+describe("a hand-edited codex-profiles.json cannot break activation");
+{
+  await freshSandbox();
+  await writeJsonAtomic(codexProfilesFile(), {
+    version: 1,
+    activeId: "ghost",
+    profiles: [
+      null,
+      { id: "no-home" },
+      { id: "work", label: "work", codexHome: "~/.codex-work" },
+      { id: "work", label: "duplicate", codexHome: "/elsewhere" },
+    ],
+  });
+  const state = loadCodexState();
+  it("keeps only valid, unique entries", state.profiles.length === 1, `${state.profiles.length}`);
+  it("ignores an activeId nothing matches", state.activeId === undefined);
+
+  const env: NodeJS.ProcessEnv = { CODEX_HOME: "/launch" };
+  it("leaves the environment alone when no slot is selected", applyActiveCodexHome(state, env) === undefined);
+  it("keeps the CODEX_HOME the window was launched with", env["CODEX_HOME"] === "/launch");
+
+  await writeJsonAtomic(codexProfilesFile(), { version: 99, profiles: [] });
+  let message: string | undefined;
+  try {
+    loadCodexState();
+  } catch (err) {
+    message = (err as Error).message;
+  }
+  it("refuses a file from a newer build", message?.includes("v99") === true, message);
+}
+
+describe("applying the selected Codex slot to the extension host environment");
+{
+  await freshSandbox();
+  const work = path.join(sandbox, ".codex-work");
+  const state = {
+    version: 1,
+    activeId: "work",
+    profiles: [
+      { id: "default", label: "기본", codexHome: "~/.codex" },
+      { id: "work", label: "work", codexHome: "~/.codex-work" },
+    ],
+  };
+
+  const env: NodeJS.ProcessEnv = {};
+  applyActiveCodexHome(state, env);
+  it("points CODEX_HOME at the slot as an absolute path", env["CODEX_HOME"] === work, env["CODEX_HOME"]);
+  it("creates the slot directory Codex requires to exist", (await fs.stat(work)).isDirectory());
+  it("matches what the window will report", effectiveCodexHome(env) === work);
+
+  const launched: NodeJS.ProcessEnv = { CODEX_HOME: "/somewhere/else" };
+  applyActiveCodexHome({ ...state, activeId: "default" }, launched);
+  it("unsets CODEX_HOME for the default slot, as Codex expects", !("CODEX_HOME" in launched));
+  it("then resolves to ~/.codex", effectiveCodexHome(launched) === defaultCodexHome());
+}
+
+describe("selecting a Codex slot waits for a reload instead of changing the running window");
+{
+  await freshSandbox();
+  await saveCodexState({
+    version: 1,
+    profiles: [
+      { id: "default", label: "기본", codexHome: "~/.codex" },
+      { id: "work", label: "work", codexHome: "~/.codex-work" },
+    ],
+  });
+  const before = process.env["CODEX_HOME"];
+  await selectCodexProfile("work");
+
+  it("records the choice", loadCodexState().activeId === "work");
+  it("creates the directory ahead of the reload", (await fs.stat(path.join(sandbox, ".codex-work"))).isDirectory());
+  it("does not touch this host's environment", process.env["CODEX_HOME"] === before);
+  it(
+    "never writes Claude Code's environment setting",
+    !vscode.__global.has("claudeCode.environmentVariables"),
+  );
+}
+
+describe("adding a Codex slot refuses directories that are not slots");
+{
+  await freshSandbox();
+  vscode.__prompts.inputBox.push("home", "~");
+  it("declines the home directory itself", (await addCodexAccountInteractive()) === undefined);
+
+  vscode.__prompts.inputBox.push("state", stateDir());
+  it("declines the extension's own state directory", (await addCodexAccountInteractive()) === undefined);
+
+  vscode.__prompts.inputBox.push("work", "~/.codex-work");
+  const added = await addCodexAccountInteractive();
+  const dir = path.join(sandbox, ".codex-work");
+  it("registers an ordinary directory", added?.profiles.some((p) => p.codexHome === dir) === true);
+  it(
+    "creates it private to the user",
+    ((await fs.stat(dir)).mode & 0o777) === 0o700,
+    ((await fs.stat(dir)).mode & 0o777).toString(8),
+  );
+
+  vscode.__prompts.inputBox.push("again", "~/.codex-work");
+  it("declines a directory that is already a slot", (await addCodexAccountInteractive()) === undefined);
 }
 
 // ---------------------------------------------------------------------------

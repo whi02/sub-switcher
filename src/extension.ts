@@ -1,9 +1,21 @@
 import * as vscode from "vscode";
+import {
+  applyActiveCodexHome,
+  codexProfileForHome,
+  effectiveCodexHome,
+  findCodexProfile,
+  loadCodexState,
+  normalizeCodexHome,
+  selectCodexProfile,
+  type CodexProfile,
+  type CodexState,
+} from "./codex";
+import { addCodexAccountInteractive, registerCodexSlotsInteractive } from "./codexSetup";
 import { renderReport, runDoctor } from "./doctor";
 import { loadProfiles, saveProfiles, type Profile } from "./profiles";
 import { readRemoteControlState, setRemoteControlAtStartup } from "./remoteControl";
 import { addAccountInteractive, runSetup } from "./setup";
-import { AccountStatusBar } from "./statusBar";
+import { AccountStatusBar, CodexStatusBar } from "./statusBar";
 import { captureActiveState, describeError, resetToDefaults, resolveActiveProfile, switchTo } from "./switcher";
 import { peakUtilization } from "./usage";
 
@@ -13,13 +25,14 @@ import { peakUtilization } from "./usage";
  * What this extension does: it sets one environment variable
  * (CLAUDE_SECURESTORAGE_CONFIG_DIR) that the official Claude Code extension
  * passes to the Claude process it spawns, and it keeps the account-scoped caches
- * in ~/.claude.json in sync with that choice.
+ * in ~/.claude.json in sync with that choice. For Codex it selects CODEX_HOME in
+ * this extension host's environment when the window loads.
  *
- * What it deliberately does not do, per Claude Code's terms:
+ * What it deliberately does not do, per Claude Code's and OpenAI's terms:
  *   - read, write, copy or store credentials of any kind (sign-in happens only
- *     through Claude Code's own /login flow)
- *   - modify the official extension or its bundled binary
- *   - call Anthropic's API on the user's behalf
+ *     through Claude Code's /login and Codex's own sign-in)
+ *   - modify the official extensions or their bundled binaries
+ *   - call Anthropic's or OpenAI's API on the user's behalf
  *   - rotate accounts automatically when a limit is reached
  */
 
@@ -27,10 +40,20 @@ import { peakUtilization } from "./usage";
 const CAPTURE_INTERVAL_MS = 60_000;
 
 let statusBar: AccountStatusBar | undefined;
+let codexStatusBar: CodexStatusBar | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // Must stay first and synchronous: the Codex extension activates onStartupFinished
+  // and its app-server inherits whatever CODEX_HOME is set when it spawns.
+  try {
+    applyActiveCodexHome(loadCodexState());
+  } catch {
+    // The Codex status bar item and the doctor report the unreadable state.
+  }
+
   statusBar = new AccountStatusBar();
-  context.subscriptions.push(statusBar);
+  codexStatusBar = new CodexStatusBar();
+  context.subscriptions.push(statusBar, codexStatusBar);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("subSwitcher.switch", () => commandSwitch()),
@@ -41,6 +64,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("subSwitcher.disableRemoteControlAutostart", () =>
       commandDisableRemoteControlAutostart(),
     ),
+    vscode.commands.registerCommand("subSwitcher.switchCodex", () => commandSwitchCodex()),
+    vscode.commands.registerCommand("subSwitcher.addCodexAccount", () => commandAddCodexAccount()),
   );
 
   // The user can edit the environment setting by hand, and the status bar's own
@@ -52,9 +77,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         event.affectsConfiguration("subSwitcher")
       ) {
         void statusBar?.refresh();
+        codexStatusBar?.refresh();
       }
     }),
   );
+  codexStatusBar.refresh();
 
   // Keep each profile's snapshot fresh so the picker can show meaningful numbers
   // for the account you are about to leave.
@@ -68,6 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
   statusBar = undefined;
+  codexStatusBar = undefined;
 }
 
 async function captureAndRefresh(): Promise<void> {
@@ -190,6 +218,103 @@ async function openNewConversation(): Promise<void> {
   vscode.window.showInformationMessage(
     "Claude Code에서 새 대화를 직접 시작하세요. (새 대화부터 전환된 계정이 적용됩니다)",
   );
+}
+
+async function commandSwitchCodex(): Promise<void> {
+  let state: CodexState;
+  try {
+    state = loadCodexState();
+    if (state.profiles.length === 0) {
+      const registered = await registerCodexSlotsInteractive();
+      if (!registered) {
+        return;
+      }
+      state = registered;
+      codexStatusBar?.refresh();
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`Codex 슬롯 정보를 읽지 못했습니다: ${describeError(err)}`);
+    return;
+  }
+
+  const current = codexProfileForHome(state, effectiveCodexHome());
+  const saved = findCodexProfile(state, state.activeId);
+  const items: (vscode.QuickPickItem & { profile?: CodexProfile })[] = state.profiles.map(
+    (profile) => ({
+      label: profile.id === current?.id ? `$(check) ${profile.label}` : `$(account) ${profile.label}`,
+      description:
+        profile.id === saved?.id && profile.id !== current?.id ? "다시 로드하면 적용" : undefined,
+      detail: normalizeCodexHome(profile.codexHome),
+      profile,
+    }),
+  );
+  items.push(
+    { label: "", kind: vscode.QuickPickItemKind.Separator },
+    { label: "$(add) Codex 계정 슬롯 추가…" },
+  );
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: "Codex 계정 전환",
+    placeHolder: "전환하면 이 창을 다시 로드해야 합니다. 기록과 설정은 계정마다 따로 저장됩니다",
+  });
+  if (!picked) {
+    return;
+  }
+  if (!picked.profile) {
+    if (picked.label.includes("슬롯 추가")) {
+      await commandAddCodexAccount();
+    }
+    return;
+  }
+
+  const target = picked.profile;
+  if (target.id === current?.id && target.id === saved?.id) {
+    vscode.window.showInformationMessage(`이 창은 이미 Codex "${target.label}" 계정을 쓰고 있습니다.`);
+    return;
+  }
+
+  try {
+    await selectCodexProfile(target.id);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Codex 계정 전환 실패: ${describeError(err)}`);
+    return;
+  }
+  codexStatusBar?.refresh();
+
+  if (target.id === current?.id) {
+    vscode.window.showInformationMessage(
+      `이 창은 이미 Codex "${target.label}" 계정을 쓰고 있어 다시 로드할 필요가 없습니다.`,
+    );
+    return;
+  }
+
+  const reload = await vscode.window.showWarningMessage(
+    `Codex를 "${target.label}" 계정으로 바꾸려면 창을 다시 로드해야 합니다.`,
+    {
+      modal: true,
+      detail:
+        "이 창에서 실행 중인 Codex와 Claude Code 작업이 모두 중단됩니다. " +
+        "Codex 기록·설정·메모리는 계정마다 따로 저장되므로, 이전 계정의 대화는 새 계정에서 보이지 않습니다. " +
+        "다른 VS Code 창에는 각 창을 다시 로드할 때 적용됩니다.",
+    },
+    "지금 다시 로드",
+  );
+  if (reload === "지금 다시 로드") {
+    await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    return;
+  }
+  vscode.window.showInformationMessage(
+    `다음에 창을 다시 로드하거나 새 창을 열면 Codex "${target.label}" 계정이 적용됩니다.`,
+  );
+}
+
+async function commandAddCodexAccount(): Promise<void> {
+  try {
+    await addCodexAccountInteractive();
+  } catch (err) {
+    vscode.window.showErrorMessage(`Codex 슬롯 추가 실패: ${describeError(err)}`);
+  }
+  codexStatusBar?.refresh();
 }
 
 async function commandSetup(): Promise<void> {

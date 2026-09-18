@@ -3,9 +3,10 @@
  * Compliance gate.
  *
  * Claude Code's terms forbid third-party tools from touching credentials,
- * modifying the official binary, or intermediating API calls. Those are easy
- * promises to make in a README and easy to break in a refactor, so this script
- * checks the actual code on every build.
+ * modifying the official binary, or intermediating API calls, and OpenAI's
+ * terms forbid modifying its software or circumventing its limits. Those are
+ * easy promises to make in a README and easy to break in a refactor, so this
+ * script checks the actual code on every build.
  *
  * Rules run in one of two stages, because the two kinds of violation live in
  * different parts of the syntax:
@@ -38,9 +39,16 @@ const RULES = [
   {
     name: "credential access",
     stage: "code",
-    why: "Sign-in must complete through Claude Code's own flow; we never read or store tokens.",
+    why: "Sign-in must complete through Claude Code's or Codex's own flow; we never read or store tokens.",
     pattern:
-      /\b(?:accessToken|refreshToken|claudeAiOauth|keytar|setPassword|getPassword|deletePassword|findCredentials)\b/,
+      /\b(?:accessToken|refreshToken|idToken|access_token|refresh_token|id_token|claudeAiOauth|keytar|setPassword|getPassword|deletePassword|findCredentials)\b/,
+  },
+  {
+    // CODEX_HOME itself is fine: it names a directory. What Codex keeps inside it is not ours.
+    name: "Codex credential storage",
+    stage: "source",
+    why: "Codex sign-in lives inside CODEX_HOME; we never open, copy or inject it.",
+    pattern: /auth\.json|codex_auth\.age|["']Codex Auth["']|CODEX_API_KEY|CODEX_ACCESS_TOKEN|OPENAI_API_KEY/,
   },
   {
     name: "process execution (import)",
@@ -62,20 +70,20 @@ const RULES = [
   {
     name: "network access (import)",
     stage: "source",
-    why: "We must not call Anthropic's API on the user's behalf.",
+    why: "We must not call Anthropic's or OpenAI's API on the user's behalf.",
     pattern: /["'](?:node:)?https?["']|["'](?:axios|node-fetch|undici|got|superagent)["']/,
   },
   {
     name: "network access (call)",
     stage: "code",
-    why: "We must not call Anthropic's API on the user's behalf.",
+    why: "We must not call Anthropic's or OpenAI's API on the user's behalf.",
     pattern: /\bfetch\s*\(|\bXMLHttpRequest\b|\bhttps?\.(?:request|get)\s*\(|\baxios\b/,
   },
   {
     name: "writing into the official extension",
     stage: "source",
-    why: "The Claude Code binary must not be modified.",
-    pattern: /vscode[/\\]extensions|anthropic\.claude-code/,
+    why: "The official extensions and their bundled binaries must not be modified.",
+    pattern: /vscode[/\\]extensions|anthropic\.claude-code|openai\.chatgpt/,
   },
 ];
 
@@ -293,6 +301,36 @@ const BAD = [
     line: 1,
     code: `await fetch(url);\n`,
   },
+  {
+    what: "path to the Codex sign-in file",
+    rule: "Codex credential storage",
+    line: 1,
+    code: `const f = path.join(codexHome, "auth.json");\n`,
+  },
+  {
+    what: "Codex token field access",
+    rule: "credential access",
+    line: 1,
+    code: `const t = auth.tokens.refresh_token;\n`,
+  },
+  {
+    what: "injecting an API key into the environment",
+    rule: "Codex credential storage",
+    line: 1,
+    code: `process.env["OPENAI_API_KEY"] = key;\n`,
+  },
+  {
+    what: "the Codex keyring service name",
+    rule: "Codex credential storage",
+    line: 1,
+    code: `keyring.load("Codex Auth", account);\n`,
+  },
+  {
+    what: "the Codex extension's id",
+    rule: "writing into the official extension",
+    line: 1,
+    code: `const id = "openai.chatgpt";\n`,
+  },
 ];
 
 const GOOD = [
@@ -315,6 +353,14 @@ const GOOD = [
   {
     what: "an object property named fetch-ish",
     code: `const age = snapshot.fetchedAt;\n`,
+  },
+  {
+    what: "selecting CODEX_HOME, which names a directory rather than a credential",
+    code: `process.env["CODEX_HOME"] = dir;\n`,
+  },
+  {
+    what: "a comment explaining where Codex keeps auth.json",
+    code: `// Codex keeps auth.json inside CODEX_HOME; we never open it\n`,
   },
 ];
 

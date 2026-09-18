@@ -1,10 +1,20 @@
 import * as crypto from "node:crypto";
+import * as fs from "node:fs/promises";
 import { readConfig, resolveConfigPath } from "./claudeConfig";
+import {
+  codexProfileForHome,
+  effectiveCodexHome,
+  findCodexProfile,
+  loadCodexState,
+  normalizeCodexHome,
+  type CodexState,
+} from "./codex";
 import { pathExists } from "./fsAtomic";
 import { getConfiguredConfigDir, getConfiguredSlotDir } from "./envSettings";
 import {
   claudeDataDir,
   claudeConfigFile,
+  codexProfilesFile,
   normalizeSlotDir,
   profilesFile,
 } from "./paths";
@@ -183,6 +193,79 @@ export async function runDoctor(): Promise<Finding[]> {
     // The config problems are already reported above.
   }
 
+  findings.push(...(await codexFindings()));
+  return findings;
+}
+
+async function codexFindings(): Promise<Finding[]> {
+  let state: CodexState;
+  try {
+    state = loadCodexState();
+  } catch (err) {
+    return [
+      {
+        level: "error",
+        title: "Codex 슬롯 정보를 읽지 못했습니다",
+        detail: `${codexProfilesFile()}\n${err instanceof Error ? err.message : String(err)}`,
+      },
+    ];
+  }
+
+  if (state.profiles.length === 0) {
+    return [
+      {
+        level: "info",
+        title: "Codex 슬롯 없음",
+        detail: "Codex 계정을 전환하려면 SubSwitcher: Switch Codex Account 를 실행하세요.",
+      },
+    ];
+  }
+
+  const findings: Finding[] = [
+    { level: "info", title: `Codex 슬롯 ${state.profiles.length}개`, detail: codexProfilesFile() },
+  ];
+
+  // Two slots resolving to one directory would share one sign-in.
+  const ownerOf = new Map<string, string>();
+  for (const profile of state.profiles) {
+    const dir = normalizeCodexHome(profile.codexHome);
+    const exists = await pathExists(dir);
+    const real = exists ? await fs.realpath(dir).catch(() => dir) : dir;
+    const clash = ownerOf.get(real);
+    if (!clash) {
+      ownerOf.set(real, profile.label);
+    }
+    findings.push({
+      level: exists && !clash ? "ok" : "warn",
+      title: `Codex 슬롯 "${profile.label}"`,
+      detail:
+        `CODEX_HOME: ${dir}${exists ? "" : "  (없음 — 전환하면 새로 만듭니다)"}` +
+        (clash ? `\n"${clash}" 슬롯과 같은 디렉터리라서 로그인도 공유됩니다.` : ""),
+    });
+  }
+
+  const home = effectiveCodexHome();
+  const current = codexProfileForHome(state, home);
+  const saved = findCodexProfile(state, state.activeId);
+  if (saved && saved.id !== current?.id) {
+    findings.push({
+      level: "warn",
+      title: "Codex 전환이 아직 이 창에 적용되지 않았습니다",
+      detail: `선택한 슬롯: ${saved.label}\n이 창의 CODEX_HOME: ${home}\n창을 다시 로드하면 적용됩니다.`,
+    });
+  } else if (current) {
+    findings.push({
+      level: "ok",
+      title: `이 창의 Codex 계정: ${current.label}`,
+      detail: `CODEX_HOME: ${home}`,
+    });
+  } else {
+    findings.push({
+      level: "info",
+      title: "이 창의 CODEX_HOME은 등록된 슬롯이 아닙니다",
+      detail: `CODEX_HOME: ${home}`,
+    });
+  }
   return findings;
 }
 

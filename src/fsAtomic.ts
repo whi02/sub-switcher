@@ -20,6 +20,8 @@ export async function writeJsonAtomic(
   const tmp = path.join(dir, `.${path.basename(destination)}.tmp-${process.pid}-${Date.now()}`);
   const body = `${JSON.stringify(value, null, 2)}\n`;
 
+  // On a fresh install ~/.claude-accounts does not exist yet.
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const handle = await fs.open(tmp, "w", mode);
   try {
     await handle.writeFile(body, "utf8");
