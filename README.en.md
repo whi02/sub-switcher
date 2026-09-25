@@ -37,6 +37,8 @@ The official extension reads the setting when it spawns a Claude process, so a s
 
 **Remote Control caveat.** A conversation started with Remote Control is bound server-side to the account that created it. To carry work across accounts, run `SubSwitcher: Disable Remote Control Autostart`. New conversations then resume under either account.
 
+**Work and personal accounts.** Because history is shared, a conversation started under a Team or Enterprise account can be resumed under a personal Pro or Max account, and the earlier transcript then goes out with that account's requests. Team and Enterprise use falls under the [Commercial Terms](https://www.anthropic.com/legal/commercial-terms), which bar Anthropic from training on it. Personal plans fall under the [Consumer Terms](https://www.anthropic.com/legal/consumer-terms), where conversations may be used for training unless you have opted out. If a conversation contains your employer's code, check its policy before resuming it on a personal account.
+
 ## Switching Codex accounts
 
 Codex has no variable that selects credentials alone. Its sign-in — as a file or in the OS keychain — is keyed off `CODEX_HOME`, and config, sessions and memories live in that same directory. So one account means one `CODEX_HOME`.
@@ -66,17 +68,24 @@ If your shell exports `CODEX_HOME` itself, that value may win. `SubSwitcher: Dia
 | `SubSwitcher: Disable Remote Control Autostart` | Stops new conversations from being bound to one account |
 | `SubSwitcher: Reset (restore defaults)` | Removes the Claude environment entry and returns to pre-install behaviour |
 
-The status bar shows the Claude account your next conversation will use, plus its last observed quota. Register a Codex slot and the window's Codex account appears too, with an icon when a switch is still waiting for a reload.
+The status bar shows the Claude account your next conversation will use, plus its last observed quota. Turn off `subSwitcher.showUsage` to hide the numbers in both the status bar and the account picker. Register a Codex slot and the window's Codex account appears too, with an icon when a switch is still waiting for a reload.
 
 ## Scope, and why it stops there
 
 - **It never handles credentials.** No token is read or copied; sign-in happens only through Claude Code's `/login` and Codex's own screen. `npm run audit:compliance` checks this against the source.
 - **It never rotates accounts for you.** Hitting a limit does not trigger a switch.
 - **It never queries usage.** Live numbers for an inactive account would require that account's token, so it shows only what Claude Code cached, labelled with when it was observed, and shows nothing at all for Codex.
+- **It relies on an undocumented variable.** `CLAUDE_SECURESTORAGE_CONFIG_DIR` is not in Claude Code's documentation yet ([anthropics/claude-code#79223](https://github.com/anthropics/claude-code/issues/79223)). If a Claude Code update changes how it behaves, switching may stop working until SubSwitcher catches up.
 
-Anthropic's [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) page forbids modifying the binary and intermediating credentials, and states that usage limits assume ordinary individual usage. Holding several subscriptions you pay for and use yourself is none of those things.
+Personal plans such as Pro and Max fall under Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms), and Claude Code adds the rules on its [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) page. Three of them bear on this extension:
 
-OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use/) forbid sharing an account and **circumventing rate limits**. Codex switching is therefore built for keeping separate accounts apart — a personal account and a work workspace, say. Do not use it to move between accounts to get around a limit.
+- Third-party tools may not collect, store or intermediate Claude credentials or session tokens, and sign-in must complete through Anthropic's own flow. SubSwitcher never touches a token; it only points the official extension at a slot you signed into with `/login`.
+- Usage limits for Pro and Max assume ordinary, individual usage.
+- Sharing an account is forbidden by the Consumer Terms, and using another account to get around a ban by the [Usage Policy](https://www.anthropic.com/legal/aup).
+
+None of these documents forbids one person from holding more than one subscription of their own. Whether a given pattern of use counts as ordinary is Anthropic's call, though, and not something this extension can promise.
+
+OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use/) forbid sharing an account and **circumventing rate limits or restrictions**. OpenAI itself supports [switching](https://help.openai.com/en/articles/20001068-use-multiple-accounts-with-account-switching) between a personal and a work ChatGPT account, and Codex switching is built for the same purpose. Do not use it to move between accounts to get around a limit.
 
 ## Requirements
 

@@ -66,6 +66,11 @@
           "default": true,
           "description": "Show the active account in the status bar."
         },
+        "subSwitcher.showUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show each Claude account's last observed usage in the status bar and the account picker. These are the numbers Claude Code cached while that account was active, never a live query."
+        },
         "subSwitcher.statusBarAlignment": {
           "type": "string",
           "enum": [

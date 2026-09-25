@@ -13,6 +13,8 @@ const workspaceScope = new Map();
 /** Queued answers for the interactive prompts, in call order. */
 const prompts = { quickPick: [], inputBox: [], message: [] };
 const shown = { info: [], warn: [], error: [] };
+/** Every status bar item created, so a test can read what it displays. */
+const statusBarItems = [];
 
 function reset() {
   defaults.clear();
@@ -24,6 +26,7 @@ function reset() {
   shown.info.length = 0;
   shown.warn.length = 0;
   shown.error.length = 0;
+  statusBarItems.length = 0;
 }
 
 module.exports = {
@@ -32,6 +35,7 @@ module.exports = {
   __workspace: workspaceScope,
   __prompts: prompts,
   __shown: shown,
+  __statusBarItems: statusBarItems,
   __reset: reset,
 
   workspace: {
@@ -63,7 +67,11 @@ module.exports = {
   },
 
   window: {
-    createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }),
+    createStatusBarItem: () => {
+      const item = { show() {}, hide() {}, dispose() {} };
+      statusBarItems.push(item);
+      return item;
+    },
     showInformationMessage: async (msg) => {
       shown.info.push(msg);
       return prompts.message.shift();

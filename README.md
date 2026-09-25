@@ -37,6 +37,8 @@ service = "Claude Code-credentials-" + sha256(slot)[:8]
 
 **Remote Control 주의.** Remote Control로 시작한 대화는 서버에서 그 대화를 만든 계정에 묶입니다. 계정을 넘나들며 이어서 작업하려면 `SubSwitcher: Disable Remote Control Autostart`를 실행하세요. 이후 새 대화는 어느 계정에서나 이어집니다.
 
+**업무 계정과 개인 계정.** 기록을 공유하므로 Team·Enterprise 계정에서 시작한 대화를 개인 Pro·Max 계정에서 이어갈 수 있습니다. 이때 이전 대화 내용도 개인 계정의 요청에 실려 전송됩니다. Team·Enterprise는 [Commercial Terms](https://www.anthropic.com/legal/commercial-terms)를 따르고 Anthropic은 그 내용으로 모델을 학습할 수 없습니다. 개인 구독은 [Consumer Terms](https://www.anthropic.com/legal/consumer-terms)를 따르고 학습 거부를 하지 않았다면 대화가 학습에 쓰일 수 있습니다. 회사 코드가 담긴 대화라면 개인 계정에서 이어가기 전에 회사 정책을 확인하세요.
+
 ## Codex 계정 전환
 
 Codex에는 자격 증명 위치만 고르는 변수가 없습니다. 로그인 정보는 파일이든 키체인이든 `CODEX_HOME` 경로를 기준으로 갈리고 설정·세션·메모리도 같은 디렉터리에 들어갑니다. 그래서 계정 하나가 곧 `CODEX_HOME` 하나입니다.
@@ -66,17 +68,24 @@ Codex에는 자격 증명 위치만 고르는 변수가 없습니다. 로그인 
 | `SubSwitcher: Disable Remote Control Autostart` | 새 대화가 계정에 묶이지 않게 설정 |
 | `SubSwitcher: Reset (restore defaults)` | Claude 환경 설정을 지우고 설치 전 상태로 |
 
-상태 표시줄에는 다음 대화가 쓸 Claude 계정과 마지막으로 관측된 사용량이 나옵니다. Codex 슬롯을 등록하면 이 창의 Codex 계정도 따로 표시됩니다. 다시 로드해야 적용되는 전환이 남아 있으면 아이콘으로 알려줍니다.
+상태 표시줄에는 다음 대화가 쓸 Claude 계정과 마지막으로 관측된 사용량이 나옵니다. 사용량은 `subSwitcher.showUsage`를 끄면 상태 표시줄과 계정 선택기에서 모두 사라집니다. Codex 슬롯을 등록하면 이 창의 Codex 계정도 따로 표시됩니다. 다시 로드해야 적용되는 전환이 남아 있으면 아이콘으로 알려줍니다.
 
 ## 범위와 약관
 
 - **자격 증명을 다루지 않습니다.** 토큰을 읽거나 복사하지 않고 로그인은 Claude Code의 `/login`과 Codex 자체 화면에서만 합니다. `npm run audit:compliance`가 소스 코드에서 이를 검사합니다.
 - **자동 전환이 없습니다.** 한도에 걸렸다고 알아서 계정을 바꾸지 않습니다.
 - **사용량을 조회하지 않습니다.** 비활성 계정의 실시간 사용량을 보려면 그 계정의 토큰이 필요합니다. 그래서 Claude Code가 캐싱해 둔 값을 관측 시각과 함께 보여줄 뿐이고 Codex 사용량은 아예 표시하지 않습니다.
+- **공식 문서에 없는 변수를 씁니다.** `CLAUDE_SECURESTORAGE_CONFIG_DIR`은 아직 Claude Code 문서에 나오지 않습니다([anthropics/claude-code#79223](https://github.com/anthropics/claude-code/issues/79223)). Claude Code 업데이트로 동작이 바뀌면 SubSwitcher가 따라갈 때까지 전환이 안 될 수 있습니다.
 
-Anthropic의 [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)는 바이너리 수정, 자격 증명 중개를 금지하고 사용량 한도가 통상적인 개인 사용을 전제한다고 밝힙니다. 본인이 결제하고 본인이 쓰는 구독을 여러 개 두는 것은 여기에 해당하지 않습니다.
+Pro·Max 같은 개인 구독에는 Anthropic의 [Consumer Terms](https://www.anthropic.com/legal/consumer-terms)가 적용되고 Claude Code에는 [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)의 규정이 더해집니다. 이 확장과 관련된 내용은 세 가지입니다.
 
-OpenAI의 [Terms of Use](https://openai.com/policies/terms-of-use/)는 계정 공유와 함께 **사용량 한도 우회**를 금지합니다. 그래서 Codex 전환은 개인 계정과 회사 워크스페이스처럼 용도가 다른 계정을 나눠 쓰는 기능으로 만들었습니다. 한도를 피하려고 계정을 옮겨 다니는 용도로는 쓰지 마세요.
+- 서드파티 도구는 Claude 자격 증명이나 세션 토큰을 수집·저장·중개할 수 없고 로그인은 Anthropic의 자체 흐름으로만 해야 합니다. SubSwitcher는 토큰에 손대지 않습니다. `/login`으로 로그인해 둔 슬롯을 공식 확장이 쓰도록 가리킬 뿐입니다.
+- Pro·Max의 사용량 한도는 통상적인 개인 사용을 전제로 합니다.
+- 계정 공유는 Consumer Terms가, 다른 계정으로 이용 정지를 피하는 행위는 [Usage Policy](https://www.anthropic.com/legal/aup)가 금지합니다.
+
+이 문서들에 한 사람이 본인 구독을 여러 개 두는 것을 금지하는 조항은 없습니다. 다만 어떤 사용이 통상적인지는 Anthropic이 판단할 일이고 이 확장이 보장할 수 있는 부분이 아닙니다.
+
+OpenAI의 [Terms of Use](https://openai.com/policies/terms-of-use/)는 계정 공유와 **사용량 한도·제한 우회**를 금지합니다. OpenAI도 ChatGPT에서 개인 계정과 업무 계정을 오가는 [계정 전환](https://help.openai.com/en/articles/20001068-use-multiple-accounts-with-account-switching)을 지원하고, Codex 전환도 같은 용도로 만들었습니다. 한도를 피하려고 계정을 옮겨 다니는 용도로는 쓰지 마세요.
 
 ## 요구 사항
 

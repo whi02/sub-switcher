@@ -15,7 +15,7 @@ import { renderReport, runDoctor } from "./doctor";
 import { loadProfiles, saveProfiles, type Profile } from "./profiles";
 import { readRemoteControlState, setRemoteControlAtStartup } from "./remoteControl";
 import { addAccountInteractive, runSetup } from "./setup";
-import { AccountStatusBar, CodexStatusBar } from "./statusBar";
+import { AccountStatusBar, CodexStatusBar, usageEnabled } from "./statusBar";
 import { captureActiveState, describeError, resetToDefaults, resolveActiveProfile, switchTo } from "./switcher";
 import { peakUtilization } from "./usage";
 
@@ -127,18 +127,13 @@ async function commandSwitch(): Promise<void> {
   }
 
   const active = resolveActiveProfile(state);
-  const items: (vscode.QuickPickItem & { profile?: Profile })[] = state.profiles.map((profile) => {
-    const peak = peakUtilization(profile.lastSeenUtilization);
-    return {
-      label: profile.id === active?.id ? `$(check) ${profile.label}` : `$(account) ${profile.label}`,
-      description: profile.oauthAccount?.emailAddress ?? "이메일 미관측",
-      detail:
-        peak !== undefined
-          ? `마지막 관측 사용량 ${Math.round(peak)}%`
-          : "사용량 관측 기록 없음",
-      profile,
-    };
-  });
+  const showUsage = usageEnabled();
+  const items: (vscode.QuickPickItem & { profile?: Profile })[] = state.profiles.map((profile) => ({
+    label: profile.id === active?.id ? `$(check) ${profile.label}` : `$(account) ${profile.label}`,
+    description: profile.oauthAccount?.emailAddress ?? "이메일 미관측",
+    detail: showUsage ? usageDetail(profile) : undefined,
+    profile,
+  }));
 
   items.push(
     { label: "", kind: vscode.QuickPickItemKind.Separator },
@@ -171,6 +166,11 @@ async function commandSwitch(): Promise<void> {
   }
 
   await performSwitch(picked.profile.id);
+}
+
+function usageDetail(profile: Profile): string {
+  const peak = peakUtilization(profile.lastSeenUtilization);
+  return peak !== undefined ? `마지막 관측 사용량 ${Math.round(peak)}%` : "사용량 관측 기록 없음";
 }
 
 async function performSwitch(profileId: string): Promise<void> {

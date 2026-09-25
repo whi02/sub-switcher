@@ -20,6 +20,7 @@ const vscode = (await import("vscode")) as unknown as {
   __global: Map<string, unknown>;
   __workspace: Map<string, unknown>;
   __prompts: { quickPick: unknown[]; inputBox: unknown[]; message: unknown[] };
+  __statusBarItems: unknown[];
   __reset: () => void;
 };
 
@@ -46,6 +47,7 @@ const {
   selectCodexProfile,
 } = await import("../src/codex");
 const { addCodexAccountInteractive } = await import("../src/codexSetup");
+const { AccountStatusBar } = await import("../src/statusBar");
 const { codexProfilesFile, defaultCodexHome } = await import("../src/paths");
 
 let failed = 0;
@@ -520,6 +522,50 @@ describe("adding a Codex slot refuses directories that are not slots");
 
   vscode.__prompts.inputBox.push("again", "~/.codex-work");
   it("declines a directory that is already a slot", (await addCodexAccountInteractive()) === undefined);
+}
+
+describe("turning off the usage display hides every number");
+{
+  await freshSandbox();
+  await fs.mkdir(stateDir(), { recursive: true });
+  const slot = path.join(sandbox, ".claude-work");
+  await fs.mkdir(slot, { recursive: true });
+  await saveProfiles({
+    version: 1,
+    activeId: "work",
+    profiles: [
+      {
+        id: "work",
+        label: "work",
+        secureStorageDir: slot,
+        oauthAccount: ACCOUNT_A,
+        lastSeenUtilization: { fiveHour: 12, sevenDay: 40, fetchedAt: "2026-09-01T00:00:00Z" },
+      },
+    ],
+  });
+
+  const bar = new AccountStatusBar();
+  const item = vscode.__statusBarItems[vscode.__statusBarItems.length - 1] as {
+    text: string;
+    tooltip: { value: string };
+  };
+
+  await bar.refresh();
+  it("shows the peak by default", item.text.includes("40%"), item.text);
+
+  vscode.__global.set("subSwitcher.showUsage", false);
+  await bar.refresh();
+  it("drops it from the status bar text", !item.text.includes("%"), item.text);
+  it(
+    "drops it from the tooltip",
+    !item.tooltip.value.includes("%") && !item.tooltip.value.includes("관측된 값"),
+    item.tooltip.value,
+  );
+  it(
+    "still names the account",
+    item.text.includes("work") && item.tooltip.value.includes(ACCOUNT_A.emailAddress),
+    item.text,
+  );
 }
 
 // ---------------------------------------------------------------------------

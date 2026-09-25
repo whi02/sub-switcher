@@ -28,6 +28,11 @@ function statusBarEnabled(): boolean {
   return vscode.workspace.getConfiguration("subSwitcher").get<boolean>("showStatusBar", true);
 }
 
+/** Whether the status bar and the account picker show last-observed Claude usage. */
+export function usageEnabled(): boolean {
+  return vscode.workspace.getConfiguration("subSwitcher").get<boolean>("showUsage", true);
+}
+
 export class AccountStatusBar {
   private readonly item: vscode.StatusBarItem;
 
@@ -105,22 +110,31 @@ export class AccountStatusBar {
     }
 
     const active = resolution.profile;
-    const peak = peakUtilization(active.lastSeenUtilization);
+    const showUsage = usageEnabled();
+    const peak = showUsage ? peakUtilization(active.lastSeenUtilization) : undefined;
     this.item.text =
       peak !== undefined
         ? `$(account) ${active.label} · ${Math.round(peak)}%`
         : `$(account) ${active.label}`;
-    this.item.tooltip = this.buildTooltip(state, active);
+    this.item.tooltip = this.buildTooltip(state, active, showUsage);
     this.item.show();
   }
 
-  private buildTooltip(state: ProfilesState, active: Profile): vscode.MarkdownString {
+  private buildTooltip(
+    state: ProfilesState,
+    active: Profile,
+    showUsage: boolean,
+  ): vscode.MarkdownString {
     const lines: string[] = ["**SubSwitcher**", ""];
 
     for (const profile of state.profiles) {
       const marker = profile.id === active.id ? "●" : "○";
       const email = profile.oauthAccount?.emailAddress ?? "이메일 미관측";
       lines.push(`${marker} **${profile.label}** — ${email}`);
+      if (!showUsage) {
+        lines.push("");
+        continue;
+      }
 
       const snapshot = profile.lastSeenUtilization;
       const peak = peakUtilization(snapshot);
@@ -148,9 +162,11 @@ export class AccountStatusBar {
     }
 
     lines.push("---");
-    lines.push("모든 수치는 **마지막으로 관측된 값**입니다. 비활성 계정의 실시간 사용량은");
-    lines.push("해당 계정 토큰을 다뤄야 하므로 조회하지 않습니다.");
-    lines.push("");
+    if (showUsage) {
+      lines.push("모든 수치는 **마지막으로 관측된 값**입니다. 비활성 계정의 실시간 사용량은");
+      lines.push("해당 계정 토큰을 다뤄야 하므로 조회하지 않습니다.");
+      lines.push("");
+    }
     lines.push("전환해도 **실행 중인 대화는 원래 계정 그대로** 계속됩니다.");
     lines.push("");
     lines.push("_클릭: 계정 전환_");
