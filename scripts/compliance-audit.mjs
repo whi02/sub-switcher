@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = path.join(root, "src");
+const macosDir = path.join(root, "macos", "Sources");
 
 /**
  * `stage` picks which stripped form the pattern is tested against.
@@ -85,7 +86,35 @@ const RULES = [
     why: "The official extensions and their bundled binaries must not be modified.",
     pattern: /vscode[/\\]extensions|anthropic\.claude-code|openai\.chatgpt/,
   },
+  // The menu bar app (macos/) makes the same promises. Swift has its own names for
+  // the same three doors, so these rules only run on .swift files.
+  {
+    name: "network access (Swift)",
+    stage: "source",
+    lang: "swift",
+    why: "The menu bar app shows only what Claude Code cached; it never queries Anthropic itself.",
+    pattern: /\b(?:URLSession|URLRequest|NSURLConnection|WKWebView|NWConnection)\b|^\s*import\s+(?:WebKit|Network)\b/,
+  },
+  {
+    name: "keychain access (Swift)",
+    stage: "source",
+    lang: "swift",
+    why: "Tokens live in Claude Code's keychain entries; the menu bar app never opens them.",
+    pattern: /\bSecItem[A-Za-z]*\b|\bkSec[A-Za-z]+\b|^\s*import\s+Security\b/,
+  },
+  {
+    name: "process execution (Swift)",
+    stage: "source",
+    lang: "swift",
+    why: "Shelling out could invoke `security` or patch the official binary.",
+    pattern: /\b(?:Process|NSTask)\s*\(|\bposix_spawn\b|\bsystem\s*\(/,
+  },
 ];
+
+/** Rules without `lang` apply to every language. */
+function rulesFor(lang) {
+  return RULES.filter((rule) => rule.lang === undefined || rule.lang === lang);
+}
 
 /**
  * Remove comments, preserving every newline so reported line numbers stay
@@ -232,13 +261,13 @@ function stripTemplate(source, start) {
   return `${out}\``;
 }
 
-function scan(source) {
+function scan(source, lang = "ts") {
   const stages = {
     source: stripComments(source),
     code: stripStringBodies(stripComments(source)),
   };
   const hits = [];
-  for (const rule of RULES) {
+  for (const rule of rulesFor(lang)) {
     stages[rule.stage].split("\n").forEach((line, index) => {
       if (rule.pattern.test(line)) {
         hits.push({ rule, line: index + 1, text: line.trim() });
@@ -331,6 +360,41 @@ const BAD = [
     line: 1,
     code: `const id = "openai.chatgpt";\n`,
   },
+  {
+    what: "URLSession in the menu bar app",
+    rule: "network access (Swift)",
+    lang: "swift",
+    line: 1,
+    code: `let (data, _) = try await URLSession.shared.data(for: request)\n`,
+  },
+  {
+    what: "WebKit import behind a doc comment",
+    rule: "network access (Swift)",
+    lang: "swift",
+    line: 4,
+    code: `/// Shows a login page.\n/// (it should not)\nimport SwiftUI\nimport WebKit\n`,
+  },
+  {
+    what: "keychain query",
+    rule: "keychain access (Swift)",
+    lang: "swift",
+    line: 1,
+    code: `SecItemCopyMatching(query as CFDictionary, &result)\n`,
+  },
+  {
+    what: "Process launch",
+    rule: "process execution (Swift)",
+    lang: "swift",
+    line: 1,
+    code: `let task = Process()\n`,
+  },
+  {
+    what: "token field in Swift",
+    rule: "credential access",
+    lang: "swift",
+    line: 1,
+    code: `let token = oauth.accessToken\n`,
+  },
 ];
 
 const GOOD = [
@@ -362,13 +426,23 @@ const GOOD = [
     what: "a comment explaining where Codex keeps auth.json",
     code: `// Codex keeps auth.json inside CODEX_HOME; we never open it\n`,
   },
+  {
+    what: "Swift comment explaining what the app does not do",
+    lang: "swift",
+    code: `// We never use URLSession, SecItemCopyMatching or Process().\n`,
+  },
+  {
+    what: "Swift field named like a fetch",
+    lang: "swift",
+    code: `let fetchedAt = cache.fetchedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) }\n`,
+  },
 ];
 
 function verifyRules() {
   const problems = [];
 
   for (const fixture of BAD) {
-    const hits = scan(fixture.code);
+    const hits = scan(fixture.code, fixture.lang);
     const match = hits.find((h) => h.rule.name === fixture.rule && h.line === fixture.line);
     if (!match) {
       problems.push(
@@ -381,7 +455,7 @@ function verifyRules() {
   }
 
   for (const fixture of GOOD) {
-    const hits = scan(fixture.code);
+    const hits = scan(fixture.code, fixture.lang);
     if (hits.length > 0) {
       problems.push(
         `false positive: ${fixture.what} — ${hits.map((h) => `"${h.rule.name}"@${h.line}`).join(", ")}`,
@@ -391,14 +465,20 @@ function verifyRules() {
   return problems;
 }
 
-async function collectSources(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
+async function collectSources(dir, ext) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
   const files = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await collectSources(full)));
-    } else if (entry.name.endsWith(".ts")) {
+      files.push(...(await collectSources(full, ext)));
+    } else if (entry.name.endsWith(ext)) {
       files.push(full);
     }
   }
@@ -413,12 +493,15 @@ if (selfTestProblems.length > 0) {
   process.exit(1);
 }
 
-const files = await collectSources(srcDir);
+const files = [
+  ...(await collectSources(srcDir, ".ts")),
+  ...(await collectSources(macosDir, ".swift")),
+];
 const violations = [];
 
 for (const file of files) {
   const source = await readFile(file, "utf8");
-  for (const hit of scan(source)) {
+  for (const hit of scan(source, file.endsWith(".swift") ? "swift" : "ts")) {
     violations.push({
       file: path.relative(root, file),
       line: hit.line,

@@ -25,3 +25,13 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build -- --production
+
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build SubSwitcher Bar
+        run: ./scripts/build_app.sh

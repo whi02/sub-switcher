@@ -70,6 +70,23 @@ Codex에는 자격 증명 위치만 고르는 변수가 없습니다. 로그인 
 
 상태 표시줄에는 다음 대화가 쓸 Claude 계정과 마지막으로 관측된 사용량이 나옵니다. 사용량은 `subSwitcher.showUsage`를 끄면 상태 표시줄과 계정 선택기에서 모두 사라집니다. Codex 슬롯을 등록하면 이 창의 Codex 계정도 따로 표시됩니다. 다시 로드해야 적용되는 전환이 남아 있으면 아이콘으로 알려줍니다.
 
+## macOS 메뉴 막대 앱 (SubSwitcher Bar)
+
+`macos/` 폴더에 있는 별도 앱입니다. VS Code 없이도 메뉴 막대에서 계정별 **5시간·7일 사용량**과 초기화까지 남은 시간을 볼 수 있습니다.
+
+- **보여주는 값은 Claude Code가 캐시해 둔 숫자입니다.** 공유 설정(`~/.claude.json`), `~/.claude-*` 슬롯의 설정 파일, SubSwitcher의 `profiles.json`을 읽기만 하고 같은 계정이면 가장 최근 값을 씁니다. 그래서 계정마다 "n분 전 관측"을 함께 표시하고, 관측 뒤에 초기화 시각이 지났으면 0%로 보여줍니다.
+- **계정 등록은 따로 없습니다.** Claude Code에서 `/login` 한 계정이 대화를 한 번 하면 나타납니다.
+- **확장과 같은 약속을 지킵니다.** 네트워크 요청, 키체인 접근, 프로세스 실행이 없고 `npm run audit:compliance`가 Swift 소스도 함께 검사합니다.
+- SubSwitcher를 쓰면 공유 설정의 사용량은 현재 활성 프로필 계정의 값으로 봅니다. 확장 없이 터미널에서 `claude`를 쓰면 다른 계정의 값이 섞일 수 있습니다.
+
+macOS 14 이상이 필요합니다. Xcode 없이 Command Line Tools만으로도 빌드됩니다.
+
+```bash
+cd macos
+./scripts/build_app.sh        # build/SubSwitcherBar.app 생성
+open build/SubSwitcherBar.app
+```
+
 ## 범위와 약관
 
 - **자격 증명을 다루지 않습니다.** 토큰을 읽거나 복사하지 않고 로그인은 Claude Code의 `/login`과 Codex 자체 화면에서만 합니다. `npm run audit:compliance`가 소스 코드에서 이를 검사합니다.
@@ -114,6 +131,7 @@ npm install
 npm run watch     # 이후 F5로 Extension Development Host 실행
 npm run check     # 타입체크 + 컴플라이언스 감사 + 테스트
 npm run package   # .vsix 생성
+cd macos && swift build   # 메뉴 막대 앱
 ```
 
 테스트는 임시 `HOME`에서 돌아가므로 실제 Claude·Codex 상태를 건드리지 않습니다. 컴플라이언스 감사는 자격 증명 접근, 셸 실행, 네트워크 호출, 공식 확장 쓰기를 소스에서 막습니다. 매번 정상·비정상 예제로 자체 검증을 하기 때문에 탐지가 멈추면 조용히 통과하지 않고 실패합니다.
