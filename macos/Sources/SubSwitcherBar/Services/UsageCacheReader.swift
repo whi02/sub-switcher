@@ -85,7 +85,7 @@ enum UsageCacheReader {
         }
         let currentUuid = activeUuid ?? shared?.oauthAccount?.accountUuid
 
-        let accounts = merged.values.map { snapshot in
+        let accounts: [AccountSnapshot] = merged.values.map { snapshot -> AccountSnapshot in
             var result = snapshot
             let identity = identities[snapshot.accountUuid]
             result.email = identity?.emailAddress
