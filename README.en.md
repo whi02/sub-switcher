@@ -70,6 +70,23 @@ If your shell exports `CODEX_HOME` itself, that value may win. `SubSwitcher: Dia
 
 The status bar shows the Claude account your next conversation will use, plus its last observed quota. Turn off `subSwitcher.showUsage` to hide the numbers in both the status bar and the account picker. Register a Codex slot and the window's Codex account appears too, with an icon when a switch is still waiting for a reload.
 
+## macOS menu bar app (SubSwitcher Bar)
+
+A separate app in `macos/`. It shows each account's **five-hour and seven-day usage** and the time until each resets, from the menu bar, no VS Code required.
+
+- **The numbers are the ones Claude Code cached.** It only reads the shared config (`~/.claude.json`), each `~/.claude-*` slot's config and SubSwitcher's `profiles.json`, keeping the freshest value per account. Every account shows how long ago it was observed, and a window whose reset time has passed since then reads 0%.
+- **There is no sign-in step.** An account appears once it has signed in with Claude Code's `/login` and had a conversation.
+- **It keeps the extension's promises.** No network requests, no keychain access, no process execution, and `npm run audit:compliance` checks the Swift sources too.
+- With SubSwitcher, the shared config's numbers are attributed to the active profile. Running `claude` from a terminal outside the extension can mix in another account's numbers.
+
+Requires macOS 14+. Command Line Tools are enough; Xcode is not needed.
+
+```bash
+cd macos
+./scripts/build_app.sh        # produces build/SubSwitcherBar.app
+open build/SubSwitcherBar.app
+```
+
 ## Scope, and why it stops there
 
 - **It never handles credentials.** No token is read or copied; sign-in happens only through Claude Code's `/login` and Codex's own screen. `npm run audit:compliance` checks this against the source.
@@ -114,6 +131,7 @@ npm install
 npm run watch     # then F5 for an Extension Development Host
 npm run check     # typecheck + compliance audit + tests
 npm run package   # produces a .vsix
+cd macos && swift build   # menu bar app
 ```
 
 Tests run against a temporary `HOME`, so they never touch your real Claude or Codex state. The compliance audit blocks credential access, shelling out, network calls and writes into the official extensions. It self-tests against known-good and known-bad fixtures on every run, so a gate that has stopped detecting anything fails instead of passing quietly.

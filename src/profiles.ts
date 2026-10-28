@@ -11,6 +11,9 @@ import { normalizeSlotDir, profilesFile } from "./paths";
  * Claude Code's `/login`, never through us.
  */
 
+// The menu bar app (macos/) reads this file too and refuses versions newer than
+// ProfilesFile.supportedVersion in macos/Sources/SubSwitcherBar/Models/Usage.swift.
+// Bump both together.
 export const PROFILES_VERSION = 1;
 
 export interface UtilizationSnapshot {
